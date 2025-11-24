@@ -1,44 +1,43 @@
 # G-Coder
 
-Convierte modelos STL en G-code para CNC Router mediante análisis y slicing automático.
+Conversor de archivos **STL → G-code** para **CNC Router de 3 ejes**, con análisis de fabricabilidad y vista previa 3D interactiva.
 
 ---
 
-## Descripción
+## 🧩 Descripción
 
-G-Coder es una aplicación desarrollada en React/Next.js que automatiza la conversión de modelos 3D en formato STL hacia G-code listo para máquinas CNC. Incluye análisis geométrico, verificación de convexidad y generación de trayectorias mediante slicing.
-
----
-
-## Funcionalidades principales
-
-- Importación de modelos STL.
-- Análisis de convexidad y validación geométrica.
-- Slicing automático por capas.
-- Generación de G-code para CNC Router.
-- Visualización 3D interactiva utilizando React-Three-Fiber.
+G-Coder es una aplicación web construida con **Next.js + React** que toma un modelo 3D en formato **STL**, evalúa si es fabricable en una CNC de 3 ejes y genera automáticamente el **G-code** correspondiente.  
+Incluye un visor 3D en el navegador para revisar el modelo antes de exportar el código.
 
 ---
 
-## Tecnologías utilizadas
+## ✨ Características
 
-- React / Next.js
-- React-Three-Fiber (Three.js)
-- TypeScript
-- Node.js
-- Algoritmos personalizados para generación de G-code
+- 📁 Carga de archivos **STL** (drag & drop o selector de archivos).
+- 🧠 **Análisis de convexidad y fabricabilidad** (undercuts, base plana, etc.).
+- 🧱 **Vista previa 3D** con rotación, zoom y medidas aproximadas (X, Y, Z).
+- 🧾 **Generación de G-code** top-down para CNC Router de 3 ejes.
+- 🐞 Modo **debug** con detalles crudos del análisis (validación).
 
 ---
 
-## Cómo ejecutar el proyecto
+## 🛠️ Tecnologías
+
+- **Frontend**: Next.js, React, TypeScript  
+- **3D**: React-Three-Fiber, Drei, Three.js  
+- **Estilos**: Tailwind CSS  
+
+---
+
+## 🚀 Cómo ejecutarlo
 
 ```bash
 # Instalar dependencias
 npm install
 
-# Ejecutar en modo desarrollo
+# Modo desarrollo
 npm run dev
 
-# Compilar para producción
+# Build de producción
 npm run build
 npm start
