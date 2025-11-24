@@ -1,10 +1,4 @@
-// convexivity.ts — FP‑robust v2.2 (Convexidad + Fabricabilidad 3 ejes)
-// Fixes críticos:
-// 1) WELD de vértices antes de todo: STL suele duplicar vértices por triángulo.
-//    Sin soldar, ninguna arista se “empareja” ⇒ watertight=false, edgeConcave=100%.
-// 2) Rotación en grados: si llega 180 (deg) desde el visor, lo convertimos a rad.
-// 3) Machinability: base plana más robusta (modo por histograma) y mantiene tus tolerancias.
-// 4) Volúmenes reportados en unidades reales (como tu v1) + mejoras anti‑FP.
+// convexivity.ts — FP‑robust v3.3 (Critical Fix: Global Z Undercut Check)
 
 import convexHull from "convex-hull"
 import { Buffer } from "buffer"
@@ -19,28 +13,33 @@ export interface MachinabilityResult {
   accessibilityScore: number // 0–100
   topFaceDownRatio: number // 0..1
   undercutRatio: number // 0..1
+  overhangRatio: number // 0..1
+  baseFlatRatio: number // 0..1
   samples: number
   details: string
+  failureReason?: string // Razón explícita del error fatal (Undercuts)
+  warnings?: string[]    // NUEVO: Advertencias no fatales (Base inestable, etc)
 }
 
 export interface ConvexityAnalysis {
   isConvex: boolean
   meshVolume: number
   hullVolume: number
-  convexityRatio: number // clamped 0..1 (para UI)
-  confidence: number // 0..100 (gap + penalizaciones)
+  convexityRatio: number // clamped 0..1
+  confidence: number // 0..100
   machinability: MachinabilityResult
-  error?: string // DEBUG visible en UI
+  error?: string 
+  details?: string
 }
 
 export interface ConvexityOptions {
-  tolerance?: number // umbral convexo por volumen (default 0.98; sugerido 0.995)
-  badGap?: number // gap tolerado para confianza (default 0.05)
-  eps?: number // base eps relativa a escala (default 1e-6)
+  tolerance?: number // Default 0.99
+  badGap?: number 
+  eps?: number 
   // Fabricabilidad
-  grid?: number // resolución de muestreo XY (default 48)
-  maxUpAngleDeg?: number // ángulo máx. respecto a Z+ (default 89.9°)
-  zEps?: number // tolerancia Z para capas (default diag*1e-6)
+  grid?: number // Default 128
+  maxUpAngleDeg?: number 
+  zEps?: number 
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -55,7 +54,6 @@ if (typeof window !== "undefined" && !(globalThis as any).Buffer) {
 // ───────────────────────────────────────────────────────────────────────────────
 
 type Vec3 = [number, number, number]
-
 type Tri = [number, number, number, number, number, number, number, number, number]
 
 function toNodeBuffer(input: ArrayBuffer | Uint8Array | Buffer): Buffer {
@@ -108,7 +106,6 @@ function toRadiansMaybe(rot: ModelRotation): ModelRotation {
   return rot
 }
 
-/** Aplica una rotación Euler (orden XYZ) a una lista de vértices. */
 export function applyRotation(positions: number[][], rotation: ModelRotation): number[][] {
   const sinX = Math.sin(rotation.x), cosX = Math.cos(rotation.x)
   const sinY = Math.sin(rotation.y), cosY = Math.cos(rotation.y)
@@ -127,7 +124,6 @@ export function applyRotation(positions: number[][], rotation: ModelRotation): n
   return out
 }
 
-// Volumen firmado (divergencia)
 function meshVolume(cells: number[][], positions: number[][]): number {
   let V = 0
   for (const c of cells) {
@@ -146,7 +142,7 @@ function meshVolume(cells: number[][], positions: number[][]): number {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Parser STL (binario + ASCII)
+// Parser STL
 // ───────────────────────────────────────────────────────────────────────────────
 
 function parseBinarySTL(buf: Buffer): Tri[] {
@@ -218,7 +214,7 @@ function sanitizeMesh(positionsIn: number[][], cellsIn: number[][]) {
     const cy = e1[2] * e2[0] - e1[0] * e2[2]
     const cz = e1[0] * e2[1] - e1[1] * e2[0]
     const dblArea = Math.sqrt(cx * cx + cy * cy + cz * cz)
-    if (!(dblArea > 0)) continue
+    if (!(dblArea > 1e-12)) continue 
     cellsOut.push(c)
     keepV[c[0]] = keepV[c[1]] = keepV[c[2]] = true
   }
@@ -232,7 +228,7 @@ function sanitizeMesh(positionsIn: number[][], cellsIn: number[][]) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// WELD de vértices (soldadura por tolerancia)
+// WELD & UTILS
 // ───────────────────────────────────────────────────────────────────────────────
 
 function weldMesh(positions: number[][], cells: number[][], eps: number) {
@@ -253,7 +249,7 @@ function weldMesh(positions: number[][], cells: number[][], eps: number) {
   const cellsOut: number[][] = []
   for (const [a,b,c] of cells) {
     const i = remap[a], j = remap[b], k2 = remap[c]
-    if (i === j || j === k2 || i === k2) continue // tri degenerado tras soldar
+    if (i === j || j === k2 || i === k2) continue
     cellsOut.push([i,j,k2])
   }
   return { positions: posOut, cells: cellsOut }
@@ -285,13 +281,13 @@ function orientFacesOutward(positions: number[][], cells: number[][]) {
     const ct: Vec3 = [(p0[0] + p1[0] + p2[0]) / 3, (p0[1] + p1[1] + p2[1]) / 3, (p0[2] + p1[2] + p2[2]) / 3]
     const v: Vec3 = [ct[0] - c[0], ct[1] - c[1], ct[2] - c[2]]
     const dot = n[0] * v[0] + n[1] * v[1] + n[2] * v[2]
-    outCells.push(dot >= 0 ? [i, j, k] : [i, k, j]) // flip si apunta hacia adentro
+    outCells.push(dot >= 0 ? [i, j, k] : [i, k, j])
   }
   return outCells
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Aristas: concavidad local + estanqueidad (con vértices soldados)
+// Métricas avanzadas
 // ───────────────────────────────────────────────────────────────────────────────
 
 function buildEdgeStats(positions: number[][], cells: number[][]) {
@@ -317,7 +313,7 @@ function buildEdgeStats(positions: number[][], cells: number[][]) {
     }
   }
 
-  const ANG_MIN = Math.cos((5 * Math.PI) / 180) // ángulo > 5°
+  const ANG_MIN = Math.cos((5 * Math.PI) / 180)
   let concave = 0, paired = 0, boundary = 0
 
   for (const e of map.values()) {
@@ -330,7 +326,7 @@ function buildEdgeStats(positions: number[][], cells: number[][]) {
       const ns: Vec3 = [n1[0]+n2[0], n1[1]+n2[1], n1[2]+n2[2]]
       const vc: Vec3 = [e.mid[0]-c[0], e.mid[1]-c[1], e.mid[2]-c[2]]
       const s = ns[0]*vc[0] + ns[1]*vc[1] + ns[2]*vc[2]
-      if (dot < ANG_MIN && s < 0) concave++ // concava si suma mira hacia el centro
+      if (dot < ANG_MIN && s < 0) concave++
     }
   }
 
@@ -339,8 +335,6 @@ function buildEdgeStats(positions: number[][], cells: number[][]) {
   const watertight = boundary === 0
   return { concaveRatio, boundaryRatio, watertight, edgeCount: map.size }
 }
-
-// ───────────────── Convexidad por multi‑intersección en 3 ejes ────────────────
 
 function triBoundsOnPlane(axis: 0 | 1 | 2, p0: Vec3, p1: Vec3, p2: Vec3) {
   if (axis === 2) {
@@ -407,13 +401,12 @@ function rayAxisHit(axis: 0 | 1 | 2, a: number, b: number, p0: Vec3, p1: Vec3, p
 function multiAxisConcavityRatios(
   positions: number[][],
   cells: number[][],
-  gridHint = 36,
+  gridHint = 100,
 ) {
   const bb = bbox(positions)
-  const diag = bb.diag || 1
-  const zEps = Math.max(1e-9, diag * 1e-6)
-  const grid = Math.max(16, Math.min(gridHint, 72))
+  const grid = Math.max(32, Math.min(gridHint, 200)) 
   const results: Record<'Z'|'X'|'Y', number> = { Z: 0, X: 0, Y: 0 }
+  const zEps = Math.max(1e-9, bb.diag * 1e-6)
 
   const axes: [0|1|2, 'X'|'Y'|'Z', number, number, number, number][] = [
     [2, 'Z', bb.min[0], bb.max[0], bb.min[1], bb.max[1]],
@@ -458,11 +451,11 @@ function multiAxisConcavityRatios(
     }
     results[key] = samples ? multi / samples : 1
   }
-  return results // {Z, X, Y}
+  return results 
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Heurística de FABRICABILIDAD (Z+) con base plana robusta
+// Heurística de FABRICABILIDAD (Z+)
 // ───────────────────────────────────────────────────────────────────────────────
 
 function triXYBounds(p0: Vec3, p1: Vec3, p2: Vec3) {
@@ -491,44 +484,59 @@ function computeMachinabilityFromMesh(
   cells: number[][],
   opts: ConvexityOptions,
 ): MachinabilityResult {
-  const grid = Math.max(8, Math.min(opts.grid ?? 48, 256))
+  const grid = Math.max(32, Math.min(opts.grid ?? 128, 512))
   const maxUpAngleDeg = Math.max(0, Math.min(opts.maxUpAngleDeg ?? 89.9, 89.9))
   const cosMax = Math.cos((maxUpAngleDeg * Math.PI) / 180)
 
   let minX = Number.POSITIVE_INFINITY, minY = Number.POSITIVE_INFINITY, minZ = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY, maxY = Number.NEGATIVE_INFINITY, maxZ = Number.NEGATIVE_INFINITY
+
   for (const [x, y, z] of positions) {
     if (!Number.isFinite(x + y + z)) continue
-    if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z
-    if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (z < minZ) minZ = z
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+    if (z > maxZ) maxZ = z
   }
+
   const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ
   const diag = Math.hypot(dx, dy, dz) || 1
-  const zEps = opts.zEps ?? Math.max(1e-9, diag * 1e-6)
+  const zEps = opts.zEps ?? Math.max(1e-9, diag * 1e-5)
+  
+  const basePlaneTol = Math.max(zEps * 4, diag * 2e-3) 
 
   const tris: { p0: Vec3; p1: Vec3; p2: Vec3; n: Vec3; bb: { minX: number; maxX: number; minY: number; maxY: number } }[] = []
+
   for (const c of cells as any as [number, number, number][]) {
-    const p0 = positions[c[0]] as Vec3, p1 = positions[c[1]] as Vec3, p2 = positions[c[2]] as Vec3
+    const p0 = positions[c[0]] as Vec3
+    const p1 = positions[c[1]] as Vec3
+    const p2 = positions[c[2]] as Vec3
     if (!p0 || !p1 || !p2) continue
     const n = triNormal(p0, p1, p2)
     const bb2 = triXYBounds(p0, p1, p2)
     if (!Number.isFinite(bb2.minX + bb2.maxX + bb2.minY + bb2.maxY)) continue
     tris.push({ p0, p1, p2, n, bb: bb2 })
   }
+
   if (!tris.length) {
-    return { isThreeAxisMachable: false, accessibilityScore: 0, topFaceDownRatio: 1, undercutRatio: 1, samples: 0, details: "Sin triángulos válidos para evaluar." }
+    return { isThreeAxisMachable: false, accessibilityScore: 0, topFaceDownRatio: 1, undercutRatio: 1, overhangRatio: 1, baseFlatRatio: 0, samples: 0, details: "Sin triángulos válidos." }
   }
 
   const nx = grid, ny = grid
-  const sx = dx / (nx - 1 || 1), sy = dy / (ny - 1 || 1)
-  let samples = 0, ok = 0, undercuts = 0, topFaceDown = 0
+  const sx = dx / (nx - 1 || 1)
+  const sy = dy / (ny - 1 || 1)
+  
+  let samples = 0, ok = 0, undercuts = 0, topFaceDown = 0, overhangs = 0
   const zLows: number[] = []
 
+  // Raycasting loop
   for (let iy = 0; iy < ny; iy++) {
     const y = ny === 1 ? (minY + maxY) * 0.5 : minY + iy * sy
     for (let ix = 0; ix < nx; ix++) {
       const x = nx === 1 ? (minX + maxX) * 0.5 : minX + ix * sx
-      samples++
+      
       const hits: { z: number; nz: number }[] = []
       for (const t of tris) {
         if (x < t.bb.minX || x > t.bb.maxX || y < t.bb.minY || y > t.bb.maxY) continue
@@ -536,54 +544,109 @@ function computeMachinabilityFromMesh(
         if (z === null || !Number.isFinite(z)) continue
         hits.push({ z, nz: t.n[2] })
       }
-      if (!hits.length) { ok++; continue }
-      hits.sort((a, b) => b.z - a.z)
+
+      if (!hits.length) continue
+      
+      samples++
+      hits.sort((a, b) => b.z - a.z) // Top to Bottom
+      
       const groups: { z: number; nz: number }[] = []
-      for (const h of hits) if (!groups.length || Math.abs(groups[groups.length - 1].z - h.z) > zEps) groups.push(h)
-      const k = groups.length
-      const hasUndercut = k > 2
-      if (hasUndercut) undercuts++
+      for (const h of hits) {
+        if (!groups.length || Math.abs(groups[groups.length - 1].z - h.z) > zEps) {
+          groups.push(h)
+        }
+      }
 
       let nTopZ = groups[0].nz
-      if (nTopZ < -0.95) nTopZ = 1.0 // perdonar normales invertidas
-      const topDown = nTopZ < -cosMax
-      if (topDown) topFaceDown++
+      if (nTopZ < -0.95) nTopZ = 1.0 
+      if (nTopZ < -cosMax) topFaceDown++
 
       const zLow = groups[groups.length - 1].z
       if (Number.isFinite(zLow)) zLows.push(zLow)
 
-      if (!hasUndercut) ok++
+      let isUndercut = false
+      let isOverhang = false
+
+      if (groups.length > 2) {
+        isUndercut = true
+      } 
+      
+      // FIX: Comparar contra GLOBAL minZ para detectar geometrías curvas que se cierran "abajo"
+      // (Ejemplo: Un cilindro horizontal o letra D vertical)
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i]
+        // Si la superficie mira hacia abajo y NO está en el piso global
+        if (g.nz < -0.1) {
+             if (g.z > minZ + basePlaneTol) {
+                 isOverhang = true
+             }
+        }
+      }
+      
+      if (isOverhang) undercuts++
+      else if (isUndercut) undercuts++
+
+      if (!isUndercut && !isOverhang && !(nTopZ < -cosMax)) ok++
     }
   }
 
-  const undercutRatio = undercuts / samples
-  const topFaceDownRatio = topFaceDown / samples
-  const accessibilityScore = Math.round((ok / samples) * 100)
+  const undercutRatio = samples ? undercuts / samples : 0
+  const topFaceDownRatio = samples ? topFaceDown / samples : 0
+  const accessibilityScore = samples ? Math.round((ok / samples) * 100) : 0
 
-  // Base plana: modo por histograma (más robusto que media/mediana)
   let baseOkRatio = 1
   if (zLows.length > 0) {
-    const baseTol = Math.max(zEps * 4, (diag || 1) * 1e-2)
-    const binK = 1 / Math.max(baseTol, 1e-12)
+    const binK = 1 / Math.max(basePlaneTol, 1e-12)
     const bins = new Map<number, number>()
+    let maxCount = 0
     for (const z of zLows) {
       const b = Math.round(z * binK)
-      bins.set(b, (bins.get(b) || 0) + 1)
+      const c = (bins.get(b) || 0) + 1
+      bins.set(b, c)
+      if (c > maxCount) maxCount = c
     }
-    let maxCount = 0
-    for (const v of bins.values()) if (v > maxCount) maxCount = v
     baseOkRatio = maxCount / zLows.length
   }
 
-  const isThreeAxisMachable = undercutRatio <= 0.01 && topFaceDownRatio <= 0.01 && accessibilityScore >= 90 && baseOkRatio >= 0.9
+  // FIX: Lógica CNC (Sustractiva)
+  // 1. Undercuts y TopFaceDown son los errores críticos de geometría.
+  // 2. BaseFlat es una ADVERTENCIA de setup (requiere tabs/stock), pero no impide el maquinado.
+  
+  const passUndercuts = undercutRatio <= 0.02
+  const passTop = topFaceDownRatio <= 0.02
+  const passAccess = accessibilityScore >= 95
+  const passBase = baseOkRatio >= 0.85
+
+  // Solo fallamos si la geometría es físicamente imposible de cortar desde arriba (undercuts)
+  const isThreeAxisMachable = passUndercuts && passTop && passAccess
+
+  const fails: string[] = []
+  if (!passUndercuts) fails.push("Undercuts (Socavados/Panza)")
+  if (!passTop) fails.push("Caras Invertidas")
+  if (!passAccess) fails.push("Acceso bloqueado")
+
+  const warnings: string[] = []
+  if (!passBase) warnings.push("Base inestable (Requiere tabs/mordazas)")
+
+  const failureReason = fails.length > 0 ? fails.join(", ") : undefined
+
+  // Detalles informativos
+  let detailsString = `grid=${grid}x${grid}, undercuts=${(undercutRatio * 100).toFixed(2)}%`
+  if (failureReason) detailsString += ` [ERROR: ${failureReason}]`
+  else if (warnings.length > 0) detailsString += ` [WARN: ${warnings[0]}]`
+  else detailsString += ` [OK]`
 
   return {
     isThreeAxisMachable,
     accessibilityScore,
     topFaceDownRatio,
     undercutRatio,
+    overhangRatio: undercutRatio, 
+    baseFlatRatio: baseOkRatio,
     samples,
-    details: `grid=${grid}x${grid}, undercuts=${(undercutRatio * 100).toFixed(2)}%, topDown=${(topFaceDownRatio * 100).toFixed(2)}%, baseOk=${(baseOkRatio*100).toFixed(2)}%`
+    details: detailsString,
+    failureReason,
+    warnings
   }
 }
 
@@ -596,12 +659,11 @@ export function analyzeConvexity(
   options: ConvexityOptions = {},
   modelRotation?: ModelRotation,
 ): ConvexityAnalysis {
-  const volTol = options.tolerance ?? 0.98 // sugerido 0.995 en casos ruidosos
+  const volTol = options.tolerance ?? 0.99
   const badGap = options.badGap ?? 0.05
   const baseEps = options.eps ?? 1e-6
 
   try {
-    // 1) Parsear & sanear
     const parsed = parseSTL(stlInput)
     let positions = parsed.positions
     let cells = parsed.cells
@@ -613,7 +675,6 @@ export function analyzeConvexity(
     positions = san.positions
     cells = san.cells
 
-    // 1.1) Aplicar rotación del UI (coerción a rad si llega en grados)
     if (modelRotation && (modelRotation.x || modelRotation.y || modelRotation.z)) {
       const rot = toRadiansMaybe(modelRotation)
       const bbOriginal = bbox(positions)
@@ -624,26 +685,23 @@ export function analyzeConvexity(
       positions = applyRotation(centered, rot)
     }
 
-    // 1.2) WELD (clave para watertight correcto en STL)
     const bb0 = bbox(positions)
     const weldEps = Math.max(baseEps * Math.max(bb0.diag, 1), 1e-9)
     const welded = weldMesh(positions, cells, weldEps)
     positions = welded.positions
     cells = welded.cells
 
-    // 2) Normalización (centrado + diag=1) para cálculos robustos
     const bb = bbox(positions)
     const lenEps = Math.max(baseEps * Math.max(bb.diag, 1), 1e-9)
     if (isThinBBox(bb, lenEps)) {
       const mach2D = computeMachinabilityFromMesh(positions, cells, options)
-      return { isConvex: false, meshVolume: 0, hullVolume: 0, convexityRatio: 0, confidence: 0, machinability: mach2D, error: `[DEBUG] Geometría 2D: dx=${bb.dx}, dy=${bb.dy}, dz=${bb.dz}, lenEps=${lenEps}` }
+      return { isConvex: false, meshVolume: 0, hullVolume: 0, convexityRatio: 0, confidence: 0, machinability: mach2D, error: `[DEBUG] Geometría 2D: dx=${bb.dx}`, details: `[DEBUG] Geometría 2D: dx=${bb.dx}` }
     }
 
     const center = [(bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2, (bb.min[2] + bb.max[2]) / 2]
     const scale = bb.diag || 1
     const posN = positions.map(p => [(p[0] - center[0]) / scale, (p[1] - center[1]) / scale, (p[2] - center[2]) / scale])
 
-    // Dedup relativo para casco (reduce ruido)
     const kf = 1 / (Math.max(1e-9, baseEps) * 1e5)
     const uniq = new Map<string, number[]>()
     for (const [x, y, z] of posN) {
@@ -652,61 +710,50 @@ export function analyzeConvexity(
     }
     const hullPts = Array.from(uniq.values())
 
-    // Re‑orientar caras hacia afuera en espacio normalizado
     const cellsOriented = orientFacesOutward(posN, cells)
 
-    // 3) Volúmenes normalizados
     const vMeshN = Math.abs(meshVolume(cellsOriented, posN))
-    if (!(vMeshN > 0) || !Number.isFinite(vMeshN)) {
-      const machBad = computeMachinabilityFromMesh(positions, cells, options)
-      return { isConvex: false, meshVolume: 0, hullVolume: 0, convexityRatio: 0, confidence: 0, machinability: machBad, error: "[DEBUG] Volumen de malla no finito o cero." }
-    }
-
+    let vHullN = 0
     const hullCells = convexHull(hullPts) as number[][]
-    if (!hullCells?.length) {
-      const machNoHull = computeMachinabilityFromMesh(positions, cells, options)
-      return { isConvex: false, meshVolume: vMeshN, hullVolume: 0, convexityRatio: 0, confidence: 0, machinability: machNoHull, error: "[DEBUG] No se pudo construir el casco convexo." }
+    
+    if (hullCells?.length) {
+        vHullN = Math.abs(meshVolume(hullCells, hullPts))
     }
-
-    const vHullN = Math.abs(meshVolume(hullCells, hullPts))
-    if (!(vHullN > 0) || !Number.isFinite(vHullN)) {
-      const machBadHull = computeMachinabilityFromMesh(positions, cells, options)
-      return { isConvex: false, meshVolume: vMeshN, hullVolume: Math.max(0, vHullN), convexityRatio: 0, confidence: 0, machinability: machBadHull, error: "[DEBUG] Volumen del casco no finito o cero." }
-    }
-
-    // 4) Métricas de convexidad adicionales (con vértices soldados)
+    
     const edgeStats = buildEdgeStats(posN, cellsOriented)
-    const multi = multiAxisConcavityRatios(posN, cellsOriented, Math.min(36, (options.grid ?? 48)))
+    const multiGrid = Math.min(100, (options.grid ?? 128))
+    const multi = multiAxisConcavityRatios(posN, cellsOriented, multiGrid)
 
-    // 5) Decisión compuesta
-    const ratioRaw = vMeshN / vHullN
+    const ratioRaw = (vHullN > 0) ? vMeshN / vHullN : 0
     const ratioClamped = clamp01(Number.isFinite(ratioRaw) ? ratioRaw : 0)
 
-    const MULTI_MAX = 0.005 // 0.5% de rayos con multi-hit
-    const EDGE_MAX  = 0.001 // 0.1% de aristas concavas
+    const MULTI_MAX = 0.005 
+    const EDGE_MAX  = 0.002 
 
     const multiMax = Math.max(multi.Z, multi.X, multi.Y)
+    
     const volumePass = Number.isFinite(ratioRaw) && ratioRaw >= volTol
     const multiPass  = multiMax <= MULTI_MAX
     const edgePass   = edgeStats.concaveRatio <= EDGE_MAX
-    const tightPass  = edgeStats.watertight
+    
+    const isConvex = multiPass && edgePass && (volumePass || ratioRaw > 0.95)
 
-    const isConvex = volumePass && multiPass && edgePass && tightPass
-
-    // 6) Confianza compuesta
     let confidence = confidenceFromRatio(ratioRaw, badGap)
-    confidence -= Math.min(40, Math.round(multiMax * 10000) / 5) // hasta −40
-    confidence -= Math.min(40, Math.round(edgeStats.concaveRatio * 100000) / 25) // hasta −40
-    if (!edgeStats.watertight) confidence = Math.min(confidence, 50)
+    if (!multiPass) confidence = Math.min(confidence, 20)
+    confidence -= Math.min(40, Math.round(edgeStats.concaveRatio * 100000) / 25) 
+    if (!edgeStats.watertight) {
+      confidence = Math.min(confidence, 60) 
+      confidence -= Math.min(20, Math.round(edgeStats.boundaryRatio * 100)) 
+    }
     confidence = Math.max(0, Math.min(100, confidence))
 
-    // 7) Fabricabilidad (usar posiciones SOLDADAS pos-rotación)
-    const mach = computeMachinabilityFromMesh(positions, cells, options)
+    const mach = computeMachinabilityFromMesh(positions, cellsOriented, options)
 
-    // 8) Volúmenes en unidades reales (como v1)
     const volScale = Math.pow(scale, 3)
     const vMesh = vMeshN * volScale
     const vHull = vHullN * volScale
+
+    const errorString = `[DEBUG] V=${vMesh.toExponential(4)} | H=${vHull.toExponential(4)} | ratio=${ratioRaw.toFixed(4)} | mach=${mach.failureReason ?? "OK"}`
 
     return {
       isConvex,
@@ -715,10 +762,8 @@ export function analyzeConvexity(
       convexityRatio: ratioClamped,
       confidence,
       machinability: mach,
-      error: `[DEBUG] V=${vMesh.toExponential(4)} | H=${vHull.toExponential(4)} | ratio=${ratioRaw.toFixed(6)} | volTol=${volTol} | ` +
-             `multi(Z=${(multi.Z*100).toFixed(2)}%,X=${(multi.X*100).toFixed(2)}%,Y=${(multi.Y*100).toFixed(2)}%) | ` +
-             `edgeConcave=${(edgeStats.concaveRatio*100).toFixed(3)}% | watertight=${edgeStats.watertight} | ` +
-             `${mach.details}`,
+      error: errorString,
+      details: errorString,
     }
   } catch (err: any) {
     return {
@@ -727,8 +772,9 @@ export function analyzeConvexity(
       hullVolume: 0,
       convexityRatio: 0,
       confidence: 0,
-      machinability: { isThreeAxisMachable: false, accessibilityScore: 0, topFaceDownRatio: 1, undercutRatio: 1, samples: 0, details: "Error global." },
-      error: err?.message || "Error desconocido durante el análisis.",
+      machinability: { isThreeAxisMachable: false, accessibilityScore: 0, topFaceDownRatio: 1, undercutRatio: 1, overhangRatio: 1, baseFlatRatio: 0, samples: 0, details: "Error global." },
+      error: err?.message || "Error desconocido",
+      details: err?.message || "Error desconocido",
     }
   }
 }
