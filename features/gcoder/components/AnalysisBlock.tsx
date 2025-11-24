@@ -2,7 +2,7 @@
 
 import { AlertCircle, CheckCircle, Info, Search, XCircle, Zap, Bug } from "lucide-react"
 import { cn } from "@/shared/lib/utils"
-import type { ConvexityAnalysis } from "@/features/gcoder/lib/convexivity"
+import type { ConvexityAnalysis } from "@/features/gcoder/lib/convexity"
 
 type Props = {
   isAnalyzing: boolean
@@ -10,17 +10,19 @@ type Props = {
   isDebugMode: boolean
 }
 
+const METRIC_REGEX: Record<"ratio" | "undercuts" | "baseOk" | "topDown", RegExp> = {
+  ratio: /ratio=([\d.]+)/,
+  undercuts: /undercuts=([\d.]+)%/,
+  baseOk: /baseOk=([\d.]+)%/,
+  topDown: /topDown=([\d.]+)%/,
+}
+
 function getMetricFromDetails(
   detailsStr: string,
   metric: "ratio" | "undercuts" | "baseOk" | "topDown",
 ): number {
   if (!detailsStr) return -1
-  const re = {
-    ratio: /ratio=([\d.]+)/,
-    undercuts: /undercuts=([\d.]+)%/,
-    baseOk: /baseOk=([\d.]+)%/,
-    topDown: /topDown=([\d.]+)%/,
-  }[metric]
+  const re = METRIC_REGEX[metric]
   const m = detailsStr.match(re)
   return m?.[1] ? parseFloat(m[1]) : -1
 }

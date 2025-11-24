@@ -193,7 +193,6 @@ export default function Converter() {
                         estimatedTime={gcode.estimatedTime}
                         code={gcode.code}
                         onDownload={onDownloadGCode}
-                        className=""  // << NO usar flex-1 para que no se expanda
                       />
                     ) : (
                       <div className="h-full flex items-center justify-center">

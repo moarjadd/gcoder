@@ -10,7 +10,7 @@ import {
   Edges,
   ContactShadows,
 } from "@react-three/drei"
-import type { OrbitControls as OrbitControlsType } from "three-stdlib"
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 import { STLLoader } from "three-stdlib"
 import { useEffect, useState, useRef } from "react"
 import * as THREE from "three"
@@ -168,7 +168,7 @@ function StlModel({
   )
 }
 
-// --- Componente principal StlViewer (CON CAMBIOS) ---
+// --- Componente principal StlViewer ---
 export default function StlViewer({
   data,
   url,
@@ -176,9 +176,13 @@ export default function StlViewer({
   wireframe = false,
   zUp = true,
   autoRotate = false,
-  modelRotation, // Recibimos la rotación en radianes
+  modelRotation,
 }: StlViewerProps) {
-  const controlsRef = useRef<OrbitControlsType>(null!)
+  const controlsRef = useRef<OrbitControlsImpl>(null!)
+
+  // 👇 NUEVO: estado para controlar remount del Canvas y guardar el renderer
+  const [canvasKey, setCanvasKey] = useState(0)
+  const [renderer, setRenderer] = useState<THREE.WebGLRenderer | null>(null)
 
   // 💡 ESTADO PARA GUARDAR LAS DIMENSIONES
   const [dimensions, setDimensions] = useState<THREE.Vector3 | null>(null)
@@ -190,6 +194,25 @@ export default function StlViewer({
       controlsRef.current.update()
     }
   }, [])
+
+  // 👇 NUEVO: si el contexto WebGL se pierde, remontamos el Canvas
+  useEffect(() => {
+    if (!renderer) return
+
+    const canvas = renderer.domElement
+
+    const handleContextLost = (event: Event) => {
+      event.preventDefault()
+      // Forzamos remount del <Canvas>
+      setCanvasKey((k) => k + 1)
+    }
+
+    canvas.addEventListener("webglcontextlost", handleContextLost as any)
+
+    return () => {
+      canvas.removeEventListener("webglcontextlost", handleContextLost as any)
+    }
+  }, [renderer])
 
   // 💡 HELPER PARA FORMATEAR LA ROTACIÓN DE RADIANES A GRADOS
   const formatRotationText = () => {
@@ -226,8 +249,13 @@ export default function StlViewer({
       }}
     >
       <Canvas
+        key={canvasKey} // fuerza remount
         camera={{ position: [3.2, 2.2, 7.8], fov: 50, near: 0.1, far: 1000 }}
         style={{ background: "transparent" }}
+        onCreated={(state) => {
+          // guardamos el renderer para escuchar webglcontextlost
+          setRenderer(state.gl)
+        }}
       >
         {/* --- Luces y Entorno --- */}
         <ambientLight intensity={0.4} />
@@ -274,7 +302,7 @@ export default function StlViewer({
 
         {/* --- Controles de Cámara --- */}
         <OrbitControls
-          ref={controlsRef}
+          ref={controlsRef as any}
           makeDefault
           enablePan
           enableZoom
@@ -290,7 +318,6 @@ export default function StlViewer({
         <GizmoHelper
           alignment="top-left"
           margin={[80, 80]}
-          controls={controlsRef}
           onUpdate={() => {
             if (controlsRef.current) {
               const distance = controlsRef.current.getDistance()

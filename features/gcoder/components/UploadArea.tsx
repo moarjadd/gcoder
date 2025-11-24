@@ -11,7 +11,7 @@ type Props = {
   stlFile: STLFileLite
   dragActive: boolean
   formatFileSize: (bytes: number) => string
-  fileInputRef: React.RefObject<HTMLInputElement>
+  fileInputRef: React.RefObject<HTMLInputElement | null>
   onDrop: (e: React.DragEvent) => void
   onDragOver: (e: React.DragEvent) => void
   onDragLeave: (e: React.DragEvent) => void
