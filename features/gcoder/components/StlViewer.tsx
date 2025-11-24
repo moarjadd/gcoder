@@ -25,7 +25,7 @@ interface StlViewerProps {
   modelRotation?: { x: number; y: number; z: number }
 }
 
-// --- Componente del Modelo STL (CON CAMBIOS) ---
+// --- Componente del Modelo STL ---
 function StlModel({
   data,
   url,
@@ -33,7 +33,7 @@ function StlModel({
   wireframe = false,
   zUp = true,
   modelRotation = { x: 0, y: 0, z: 0 },
-  onDimensionsCalculated, // 💡 NUEVA PROP
+  onDimensionsCalculated,
 }: {
   data?: ArrayBuffer
   url?: string
@@ -41,17 +41,15 @@ function StlModel({
   wireframe: boolean
   zUp?: boolean
   modelRotation?: { x: number; y: number; z: number }
-  onDimensionsCalculated?: (size: THREE.Vector3) => void // 💡 TIPO DE LA NUEVA PROP
+  onDimensionsCalculated?: (size: THREE.Vector3) => void
 }) {
-  // ... (Estados baseGeometry, transformedGeometry, meshRef sin cambios) ...
   const [baseGeometry, setBaseGeometry] =
     useState<THREE.BufferGeometry | null>(null)
   const [transformedGeometry, setTransformedGeometry] =
     useState<THREE.BufferGeometry | null>(null)
   const meshRef = useRef<THREE.Mesh>(null)
 
-  // --- 1. useEffect de CARGA ---
-  // ... (Sin cambios) ...
+  // --- 1. Carga ---
   useEffect(() => {
     const loader = new STLLoader()
     let geo: THREE.BufferGeometry | null = null
@@ -79,24 +77,23 @@ function StlModel({
     }
 
     return () => {
-      if (geo) {
-        geo.dispose()
-      }
+      if (geo) geo.dispose()
       setBaseGeometry(null)
     }
   }, [data, url])
 
-  // --- 2. useEffect de TRANSFORMACIÓN ---
-  // ... (Sin cambios) ...
+  // --- 2. Transformación ---
   useEffect(() => {
     if (!baseGeometry) {
       setTransformedGeometry(null)
       return
     }
     const geo = baseGeometry.clone()
+    
     if (zUp) {
       geo.rotateX(-Math.PI / 2)
     }
+
     const euler = new THREE.Euler(
       modelRotation.x,
       modelRotation.y,
@@ -120,7 +117,7 @@ function StlModel({
     }
   }, [baseGeometry, zUp, modelRotation])
 
-  // --- 3. useEffect de ESCALADO (CON CAMBIOS) ---
+  // --- 3. Escalado y Reporte de Dimensiones ---
   useEffect(() => {
     if (!transformedGeometry || !meshRef.current) return
     const m = meshRef.current
@@ -134,8 +131,6 @@ function StlModel({
     const size = new THREE.Vector3()
     box.getSize(size)
 
-    // 💡 PASAR DATOS "HACIA ARRIBA"
-    // Aquí enviamos las dimensiones reales (sin escalar) al componente padre
     if (onDimensionsCalculated) {
       onDimensionsCalculated(size)
     }
@@ -144,10 +139,8 @@ function StlModel({
     if (maxDim > 0) {
       m.scale.setScalar(4 / maxDim)
     }
-  }, [transformedGeometry, onDimensionsCalculated]) // 💡 AÑADIDA DEPENDENCIA
+  }, [transformedGeometry, onDimensionsCalculated])
 
-  // --- Renderizado ---
-  // ... (Sin cambios) ...
   if (!transformedGeometry) return null
   return (
     <mesh ref={meshRef} geometry={transformedGeometry}>
@@ -179,15 +172,10 @@ export default function StlViewer({
   modelRotation,
 }: StlViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl>(null!)
-
-  // 👇 NUEVO: estado para controlar remount del Canvas y guardar el renderer
   const [canvasKey, setCanvasKey] = useState(0)
   const [renderer, setRenderer] = useState<THREE.WebGLRenderer | null>(null)
-
-  // 💡 ESTADO PARA GUARDAR LAS DIMENSIONES
   const [dimensions, setDimensions] = useState<THREE.Vector3 | null>(null)
 
-  // Efecto para setear el target inicial (corrige bug de gizmo/pan)
   useEffect(() => {
     if (controlsRef.current) {
       controlsRef.current.target.set(0, 1, 0)
@@ -195,40 +183,37 @@ export default function StlViewer({
     }
   }, [])
 
-  // 👇 NUEVO: si el contexto WebGL se pierde, remontamos el Canvas
   useEffect(() => {
     if (!renderer) return
-
     const canvas = renderer.domElement
-
     const handleContextLost = (event: Event) => {
       event.preventDefault()
-      // Forzamos remount del <Canvas>
       setCanvasKey((k) => k + 1)
     }
-
     canvas.addEventListener("webglcontextlost", handleContextLost as any)
-
     return () => {
       canvas.removeEventListener("webglcontextlost", handleContextLost as any)
     }
   }, [renderer])
 
-  // 💡 HELPER PARA FORMATEAR LA ROTACIÓN DE RADIANES A GRADOS
   const formatRotationText = () => {
     const getDegrees = (rad: number | undefined) =>
       ((rad ?? 0) * 180) / Math.PI
     
     const rotX = getDegrees(modelRotation?.x).toFixed(0)
-    const rotY = getDegrees(modelRotation?.y).toFixed(0)
-    const rotZ = getDegrees(modelRotation?.z).toFixed(0)
+    const rotY = getDegrees(modelRotation?.y).toFixed(0) 
+    const rotZ = getDegrees(modelRotation?.z).toFixed(0) 
+
+    // Si todo es 0, mostramos SOLO "Base"
+    if (rotX === "0" && rotY === "0" && rotZ === "0") {
+      return "Base"
+    }
 
     const parts = []
     if (rotX !== "0") parts.push(`X: ${rotX}°`)
-    if (rotY !== "0") parts.push(`Y: ${rotY}°`)
+    if (rotY !== "0") parts.push(`Y: ${rotY}°`) 
     if (rotZ !== "0") parts.push(`Z: ${rotZ}°`)
 
-    if (parts.length === 0) return "Base (0°, 0°, 0°)"
     return parts.join(", ")
   }
 
@@ -239,25 +224,22 @@ export default function StlViewer({
   }
 
   return (
-    // 💡 DIV CONTENEDOR 'relative' PARA POSICIONAR EL HUD
     <div
       className="w-full h-full rounded-lg overflow-hidden relative"
       style={{
-        background: "var(--background)",
+        background: "var(--gc-background-dark, #09090b)",
         backgroundImage:
           "linear-gradient(135deg, color-mix(in oklch, var(--background) 92%, white 8%), color-mix(in oklch, var(--background) 88%, black 12%))",
       }}
     >
       <Canvas
-        key={canvasKey} // fuerza remount
+        key={canvasKey}
         camera={{ position: [3.2, 2.2, 7.8], fov: 50, near: 0.1, far: 1000 }}
         style={{ background: "transparent" }}
         onCreated={(state) => {
-          // guardamos el renderer para escuchar webglcontextlost
           setRenderer(state.gl)
         }}
       >
-        {/* --- Luces y Entorno --- */}
         <ambientLight intensity={0.4} />
         <directionalLight
           position={[10, 10, 5]}
@@ -269,7 +251,6 @@ export default function StlViewer({
         <directionalLight position={[-10, -10, -5]} intensity={0.3} />
         <Environment preset="studio" />
 
-        {/* --- Rejilla (Cama) --- */}
         <Grid
           args={[20, 20]}
           position={[0, 0, 0]}
@@ -279,7 +260,6 @@ export default function StlViewer({
           fadeStrength={1}
         />
 
-        {/* SOMBRAS */}
         <ContactShadows
           position={[0, 0.001, 0]}
           scale={20}
@@ -289,7 +269,6 @@ export default function StlViewer({
           color="#000000"
         />
 
-        {/* --- Modelo STL --- */}
         <StlModel
           data={data}
           url={url}
@@ -297,10 +276,9 @@ export default function StlViewer({
           wireframe={wireframe}
           zUp={zUp}
           modelRotation={modelRotation}
-          onDimensionsCalculated={setDimensions} // 💡 PASANDO EL CALLBACK
+          onDimensionsCalculated={setDimensions}
         />
 
-        {/* --- Controles de Cámara --- */}
         <OrbitControls
           ref={controlsRef as any}
           makeDefault
@@ -314,7 +292,6 @@ export default function StlViewer({
           maxDistance={50}
         />
 
-        {/* --- Brújula/Gizmo (CON LÓGICA DE REINICIO DE PAN) --- */}
         <GizmoHelper
           alignment="top-left"
           margin={[80, 80]}
@@ -333,32 +310,36 @@ export default function StlViewer({
           }}
         >
           <GizmoViewport
-            axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
+            axisColors={["#ef4444", "#3b82f6", "#22c55e"]} 
+            labels={["X", "Z", "Y"]}
             labelColor="white"
           />
         </GizmoHelper>
       </Canvas>
 
-      {/* 💡 INICIO: NUEVO BLOQUE DE INFORMACIÓN (HUD) */}
+      {/* HUD Information */}
       <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent text-white text-xs font-mono pointer-events-none">
         <div className="flex justify-between items-center gap-4">
-          {/* Medidas */}
           <span className="truncate">
             <strong>Medidas (mm): </strong>
             {dimensions
-              ? `X: ${dimensions.x.toFixed(2)} | Y: ${dimensions.y.toFixed(
-                  2,
-                )} | Z: ${dimensions.z.toFixed(2)}`
+              ? (
+                <>
+                  {/* MANTENEMOS EL CRUCE DE MEDIDAS (Z es Altura) 
+                    Three.js Y (Alto) -> Visual Z
+                    Three.js Z (Profundo) -> Visual Y
+                  */}
+                  X: {dimensions.x.toFixed(2)} | Y: {dimensions.z.toFixed(2)} | Z: {dimensions.y.toFixed(2)}
+                </>
+              )
               : "Calculando..."}
           </span>
-          {/* Rotación */}
           <span className="flex-shrink-0">
             <strong>Rotación: </strong>
             {formatRotationText()}
           </span>
         </div>
       </div>
-      {/* 💡 FIN: NUEVO BLOQUE DE INFORMACIÓN (HUD) */}
     </div>
   )
 }

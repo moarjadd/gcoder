@@ -10,6 +10,8 @@ import {
   RotateCcw,
   ArrowUp,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react"
 import { cn } from "@/shared/lib/utils"
 import CubeLoader from "@/features/gcoder/components/CubeLoader"
@@ -26,7 +28,7 @@ type Props = {
   isAnalyzed?: boolean
 }
 
-// Lazy load del visor con skeleton mínimo
+// Lazy load del visor
 const StlViewer = dynamic(() => import("@/features/gcoder/components/StlViewer"), {
   ssr: false,
   loading: () => (
@@ -74,7 +76,7 @@ function Preview3DBase({
         <StlViewer {...viewerProps} />
       </div>
 
-      {/* Overlay cuando NO hay STL: animación + texto */}
+      {/* Overlay cuando NO hay STL */}
       {!data && (
         <div className="absolute inset-0 grid place-items-center pointer-events-none">
           <div className="flex flex-col items-center gap-2">
@@ -98,9 +100,9 @@ function Preview3DBase({
           variant="default"
           className={cn(
             "absolute top-4 right-4 z-10",
-            "h-10 w-10 p-0", // Tamaño de FAB
+            "h-10 w-10 p-0",
             isConverting && "animate-pulse",
-            "cursor-pointer disabled:cursor-not-allowed", // Esto estaba bien
+            "cursor-pointer disabled:cursor-not-allowed",
           )}
         >
           {isConverting ? (
@@ -116,62 +118,68 @@ function Preview3DBase({
       {/* ===== INICIO: Panel de Rotación de Modelo ===== */}
       {data && rotateModel && (
         <div className="p-3 border-t border-border bg-muted/20">
-          <div className="grid grid-cols-4 gap-2">
-            {/* Rotar en Y (Izquierda/Derecha) */}
-            <Button
-              onClick={() => rotateModel("y", 90)}
-              variant="outline"
-              // 💡 CORREGIDO: Clases unidas con cn()
-              className={cn(
-                "h-9 w-full",
-                "cursor-pointer disabled:cursor-not-allowed",
-              )}
-              title="Rotar en Y +90° (Derecha)"
-              disabled={isAnalyzed}
-            >
-              <RotateCw className="w-4 h-4" />
-            </Button>
+          <div className="grid grid-cols-6 gap-2">
+            
+            {/* 1. Rotar en Y (Izquierda/Derecha) -> PRIMEROS */}
             <Button
               onClick={() => rotateModel("y", -90)}
               variant="outline"
-              // 💡 CORREGIDO: Clases unidas con cn()
-              className={cn(
-                "h-9 w-full",
-                "cursor-pointer disabled:cursor-not-allowed",
-              )}
-              title="Rotar en Y -90° (Izquierda)"
+              className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
+              title="Rotar Y -90° (Izquierda)"
+              disabled={isAnalyzed}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <Button
+              onClick={() => rotateModel("y", 90)}
+              variant="outline"
+              className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
+              title="Rotar Y +90° (Derecha)"
+              disabled={isAnalyzed}
+            >
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+
+            {/* 2. Rotar en Z (Horario/Anti-horario) -> EN MEDIO */}
+            <Button
+              onClick={() => rotateModel("z", -90)}
+              variant="outline"
+              className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
+              title="Rotar Z -90° (Anti-horario)"
               disabled={isAnalyzed}
             >
               <RotateCcw className="w-4 h-4" />
             </Button>
-
-            {/* Rotar en X (Arriba/Abajo) */}
             <Button
-              onClick={() => rotateModel("x", 90)}
+              onClick={() => rotateModel("z", 90)}
               variant="outline"
-              // 💡 CORREGIDO: Clases unidas con cn()
-              className={cn(
-                "h-9 w-full",
-                "cursor-pointer disabled:cursor-not-allowed",
-              )}
-              title="Rotar en X +90° (Arriba)"
+              className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
+              title="Rotar Z +90° (Horario)"
               disabled={isAnalyzed}
             >
-              <ArrowUp className="w-4 h-4" />
+              <RotateCw className="w-4 h-4" />
             </Button>
+
+            {/* 3. Rotar en X (Arriba/Abajo) -> ÚLTIMOS */}
             <Button
               onClick={() => rotateModel("x", -90)}
               variant="outline"
-              // 💡 CORREGIDO: Clases unidas con cn()
-              className={cn(
-                "h-9 w-full",
-                "cursor-pointer disabled:cursor-not-allowed",
-              )}
-              title="Rotar en X -90° (Abajo)"
+              className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
+              title="Rotar X -90° (Abajo)"
               disabled={isAnalyzed}
             >
               <ArrowDown className="w-4 h-4" />
             </Button>
+            <Button
+              onClick={() => rotateModel("x", 90)}
+              variant="outline"
+              className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
+              title="Rotar X +90° (Arriba)"
+              disabled={isAnalyzed}
+            >
+              <ArrowUp className="w-4 h-4" />
+            </Button>
+
           </div>
         </div>
       )}

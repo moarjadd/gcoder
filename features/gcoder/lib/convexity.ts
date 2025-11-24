@@ -495,33 +495,119 @@ function computeMachinabilityFromMesh(
   const maxUpAngleDeg = Math.max(0, Math.min(opts.maxUpAngleDeg ?? 89.9, 89.9))
   const cosMax = Math.cos((maxUpAngleDeg * Math.PI) / 180)
 
-  let minX = Number.POSITIVE_INFINITY, minY = Number.POSITIVE_INFINITY, minZ = Number.POSITIVE_INFINITY
-  let maxX = Number.NEGATIVE_INFINITY, maxY = Number.NEGATIVE_INFINITY, maxZ = Number.NEGATIVE_INFINITY
+  let minX = Number.POSITIVE_INFINITY,
+      minY = Number.POSITIVE_INFINITY,
+      minZ = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY,
+      maxY = Number.NEGATIVE_INFINITY,
+      maxZ = Number.NEGATIVE_INFINITY
+
   for (const [x, y, z] of positions) {
     if (!Number.isFinite(x + y + z)) continue
-    if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z
-    if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (z < minZ) minZ = z
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+    if (z > maxZ) maxZ = z
   }
-  const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ
+
+  const dx = maxX - minX
+  const dy = maxY - minY
+  const dz = maxZ - minZ
   const diag = Math.hypot(dx, dy, dz) || 1
+
   const zEps = opts.zEps ?? Math.max(1e-9, diag * 1e-6)
 
-  const tris: { p0: Vec3; p1: Vec3; p2: Vec3; n: Vec3; bb: { minX: number; maxX: number; minY: number; maxY: number } }[] = []
+  // ⚠️ OJO: esta tolerancia solo se usa para detectar la base plana,
+  // NO para perdonar domos como el tuyo.
+  const basePlaneTol = Math.max(zEps * 4, diag * 1e-4) // ~0.01% de la escala
+
+  const tris: {
+    p0: Vec3
+    p1: Vec3
+    p2: Vec3
+    n: Vec3
+    bb: { minX: number; maxX: number; minY: number; maxY: number }
+  }[] = []
+
   for (const c of cells as any as [number, number, number][]) {
-    const p0 = positions[c[0]] as Vec3, p1 = positions[c[1]] as Vec3, p2 = positions[c[2]] as Vec3
+    const p0 = positions[c[0]] as Vec3
+    const p1 = positions[c[1]] as Vec3
+    const p2 = positions[c[2]] as Vec3
     if (!p0 || !p1 || !p2) continue
     const n = triNormal(p0, p1, p2)
     const bb2 = triXYBounds(p0, p1, p2)
     if (!Number.isFinite(bb2.minX + bb2.maxX + bb2.minY + bb2.maxY)) continue
     tris.push({ p0, p1, p2, n, bb: bb2 })
   }
+
   if (!tris.length) {
-    return { isThreeAxisMachable: false, accessibilityScore: 0, topFaceDownRatio: 1, undercutRatio: 1, samples: 0, details: "Sin triángulos válidos para evaluar." }
+    return {
+      isThreeAxisMachable: false,
+      accessibilityScore: 0,
+      topFaceDownRatio: 1,
+      undercutRatio: 1,
+      samples: 0,
+      details: "Sin triángulos válidos para evaluar.",
+    }
   }
 
+  // ─── Regla de oro: "ningún triángulo (que no sea base) puede tener normal hacia abajo" ───
+
+  let totalArea = 0
+  let downArea = 0
+
+  for (const t of tris) {
+    const { p0, p1, p2, n } = t
+
+    const ux = p1[0] - p0[0],
+          uy = p1[1] - p0[1],
+          uz = p1[2] - p0[2]
+    const vx = p2[0] - p0[0],
+          vy = p2[1] - p0[1],
+          vz = p2[2] - p0[2]
+
+    const cx = uy * vz - uz * vy
+    const cy = uz * vx - ux * vz
+    const cz = ux * vy - uy * vx
+    const area = 0.5 * Math.hypot(cx, cy, cz)
+    if (!(area > 0) || !Number.isFinite(area)) continue
+
+    totalArea += area
+
+    const z0 = p0[2], z1 = p1[2], z2 = p2[2]
+    const minTriZ = Math.min(z0, z1, z2)
+    const maxTriZ = Math.max(z0, z1, z2)
+
+    // BASE ESTRICTA:
+    //  - muy cerca del minZ global
+    //  - muy plana en Z
+    //  - normal muy vertical hacia abajo (contacto con la mesa)
+    const nearBottom = (minTriZ - minZ) <= basePlaneTol
+    const veryFlat   = (maxTriZ - minTriZ) <= basePlaneTol
+    const normalDownStrong = n[2] <= -0.9
+
+    const isBase = nearBottom && veryFlat && normalDownStrong
+
+    // Cualquier otra cara con componente Z negativa cuenta como "down facing"
+    // (normales horizontales o casi horizontales NO se cuentan aquí).
+    if (!isBase && n[2] < -0.1) {
+      downArea += area
+    }
+  }
+
+  const downFacingRatio = totalArea > 0 ? downArea / totalArea : 0
+
+  // ─── Grid para undercuts / accesibilidad (como ya tenías) ───
+
   const nx = grid, ny = grid
-  const sx = dx / (nx - 1 || 1), sy = dy / (ny - 1 || 1)
-  let samples = 0, ok = 0, undercuts = 0, topFaceDown = 0
+  const sx = dx / (nx - 1 || 1)
+  const sy = dy / (ny - 1 || 1)
+  let samples = 0,
+      ok = 0,
+      undercuts = 0,
+      topFaceDown = 0
   const zLows: number[] = []
 
   for (let iy = 0; iy < ny; iy++) {
@@ -530,24 +616,32 @@ function computeMachinabilityFromMesh(
       const x = nx === 1 ? (minX + maxX) * 0.5 : minX + ix * sx
       samples++
       const hits: { z: number; nz: number }[] = []
+
       for (const t of tris) {
         if (x < t.bb.minX || x > t.bb.maxX || y < t.bb.minY || y > t.bb.maxY) continue
         const z = rayZHit(x, y, t.p0, t.p1, t.p2)
         if (z === null || !Number.isFinite(z)) continue
         hits.push({ z, nz: t.n[2] })
       }
+
       if (!hits.length) { ok++; continue }
+
       hits.sort((a, b) => b.z - a.z)
       const groups: { z: number; nz: number }[] = []
-      for (const h of hits) if (!groups.length || Math.abs(groups[groups.length - 1].z - h.z) > zEps) groups.push(h)
+      for (const h of hits) {
+        if (!groups.length || Math.abs(groups[groups.length - 1].z - h.z) > zEps) {
+          groups.push(h)
+        }
+      }
+
       const k = groups.length
       const hasUndercut = k > 2
       if (hasUndercut) undercuts++
 
       let nTopZ = groups[0].nz
-      if (nTopZ < -0.95) nTopZ = 1.0 // perdonar normales invertidas
-      const topDown = nTopZ < -cosMax
-      if (topDown) topFaceDown++
+      if (nTopZ < -0.95) nTopZ = 1.0 // perdonar normales invertidas puntuales
+      const topDownHit = nTopZ < -cosMax
+      if (topDownHit) topFaceDown++
 
       const zLow = groups[groups.length - 1].z
       if (Number.isFinite(zLow)) zLows.push(zLow)
@@ -560,11 +654,10 @@ function computeMachinabilityFromMesh(
   const topFaceDownRatio = topFaceDown / samples
   const accessibilityScore = Math.round((ok / samples) * 100)
 
-  // Base plana: modo por histograma (más robusto que media/mediana)
+  // Base plana: modo por histograma (igual que antes)
   let baseOkRatio = 1
   if (zLows.length > 0) {
-    const baseTol = Math.max(zEps * 4, (diag || 1) * 1e-2)
-    const binK = 1 / Math.max(baseTol, 1e-12)
+    const binK = 1 / Math.max(basePlaneTol, 1e-12)
     const bins = new Map<number, number>()
     for (const z of zLows) {
       const b = Math.round(z * binK)
@@ -575,7 +668,15 @@ function computeMachinabilityFromMesh(
     baseOkRatio = maxCount / zLows.length
   }
 
-  const isThreeAxisMachable = undercutRatio <= 0.01 && topFaceDownRatio <= 0.01 && accessibilityScore >= 90 && baseOkRatio >= 0.9
+  // >>> AQUÍ VA LA REGLA DURA: no se permite área hacia abajo (excepto base)
+  const maxDownFacing = 0 // 0% permitido fuera de la base
+
+  const isThreeAxisMachable =
+    downFacingRatio <= maxDownFacing &&
+    undercutRatio <= 0.01 &&
+    topFaceDownRatio <= 0.01 &&
+    accessibilityScore >= 90 &&
+    baseOkRatio >= 0.9
 
   return {
     isThreeAxisMachable,
@@ -583,7 +684,12 @@ function computeMachinabilityFromMesh(
     topFaceDownRatio,
     undercutRatio,
     samples,
-    details: `grid=${grid}x${grid}, undercuts=${(undercutRatio * 100).toFixed(2)}%, topDown=${(topFaceDownRatio * 100).toFixed(2)}%, baseOk=${(baseOkRatio*100).toFixed(2)}%`
+    details:
+      `grid=${grid}x${grid}, ` +
+      `undercuts=${(undercutRatio * 100).toFixed(2)}%, ` +
+      `topDown=${(topFaceDownRatio * 100).toFixed(2)}%, ` +
+      `baseOk=${(baseOkRatio * 100).toFixed(2)}%, ` +
+      `down=${(downFacingRatio * 100).toFixed(2)}%`,
   }
 }
 
@@ -691,17 +797,21 @@ export function analyzeConvexity(
     const edgePass   = edgeStats.concaveRatio <= EDGE_MAX
     const tightPass  = edgeStats.watertight
 
-    const isConvex = volumePass && multiPass && edgePass && tightPass
+    const isConvex = volumePass && multiPass && edgePass
 
     // 6) Confianza compuesta
     let confidence = confidenceFromRatio(ratioRaw, badGap)
     confidence -= Math.min(40, Math.round(multiMax * 10000) / 5) // hasta −40
     confidence -= Math.min(40, Math.round(edgeStats.concaveRatio * 100000) / 25) // hasta −40
-    if (!edgeStats.watertight) confidence = Math.min(confidence, 50)
+    if (!edgeStats.watertight) {
+      confidence = Math.min(confidence, 60) // tope máximo si está abierta
+      confidence -= Math.min(20, Math.round(edgeStats.boundaryRatio * 100)) // 0..20 extra según bordes
+    }
+
     confidence = Math.max(0, Math.min(100, confidence))
 
     // 7) Fabricabilidad (usar posiciones SOLDADAS pos-rotación)
-    const mach = computeMachinabilityFromMesh(positions, cells, options)
+    const mach = computeMachinabilityFromMesh(positions, cellsOriented, options)
 
     // 8) Volúmenes en unidades reales (como v1)
     const volScale = Math.pow(scale, 3)
@@ -718,6 +828,7 @@ export function analyzeConvexity(
       error: `[DEBUG] V=${vMesh.toExponential(4)} | H=${vHull.toExponential(4)} | ratio=${ratioRaw.toFixed(6)} | volTol=${volTol} | ` +
              `multi(Z=${(multi.Z*100).toFixed(2)}%,X=${(multi.X*100).toFixed(2)}%,Y=${(multi.Y*100).toFixed(2)}%) | ` +
              `edgeConcave=${(edgeStats.concaveRatio*100).toFixed(3)}% | watertight=${edgeStats.watertight} | ` +
+             `boundary=${(edgeStats.boundaryRatio*100).toFixed(2)}% | ` +  // 👈 NUEVO
              `${mach.details}`,
     }
   } catch (err: any) {
