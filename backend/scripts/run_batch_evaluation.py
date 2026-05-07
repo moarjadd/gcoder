@@ -41,6 +41,10 @@ CASE_METADATA = {
         "category": "valid_curved_solid",
         "expected_behavior": "Malla valida y conversion exitosa con secciones variables.",
     },
+    "star-prism.stl": {
+        "category": "accessible_concave_solid",
+        "expected_behavior": "Malla valida concava accesible desde Z; conversion con advertencias si la herramienta pierde detalle.",
+    },
     "invalid-flat.stl": {
         "category": "invalid_mesh",
         "expected_behavior": "Rechazo por malla sin volumen o dimensiones utiles.",
@@ -69,7 +73,7 @@ def default_machining_params() -> MachiningParams:
         plunge_rate_mm_min=200,
         spindle_rpm=12000,
         safe_z_mm=5.0,
-        strategy=ToolpathStrategy.contour,
+        strategy=ToolpathStrategy.positive_part_external,
         tolerance_mm=0.1,
     )
 
@@ -160,6 +164,19 @@ def evaluate_model(model_name: str, params: MachiningParams | None = None) -> di
             "toolpath_move_count": report["toolpath_move_count"],
             "gcode_line_count": report["gcode_line_count"],
             "processing_time_seconds": report["processing_time_seconds"],
+            "machining_semantics": report["machining_semantics"],
+            "stock_margin_mm": report["stock_margin_mm"],
+            "tool_diameter_mm": report["tool_diameter_mm"],
+            "tool_radius_mm": report["tool_radius_mm"],
+            "uses_internal_pocket": report["uses_internal_pocket"],
+            "convex_hull_fallback_used": report["convex_hull_fallback_used"],
+            "slicing_fallback_used": report["slicing_fallback_used"],
+            "geometry_preservation_warning": report["geometry_preservation_warning"],
+            "concavity_detected": report["concavity_detected"],
+            "concavity_preserved": report["concavity_preserved"],
+            "detail_loss_risk": report["detail_loss_risk"],
+            "skipped_layers_count": report["skipped_layers_count"],
+            "invalid_toolpath_layers_count": report["invalid_toolpath_layers_count"],
             "warnings": report["warnings"],
             "anomalies": report["anomalies"],
         }

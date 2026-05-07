@@ -1,0 +1,25 @@
+{
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "ignorePatterns": [
+    "src/components/ui/**",
+    "src/hooks/useMobile.ts",
+    "src/hooks/useToast.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["src/features/gcoder/legacy/**"],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-unused-vars": "off",
+        "prefer-const": "off"
+      }
+    },
+    {
+      "files": ["src/features/gcoder/components/viewer/StlViewer.tsx"],
+      "rules": {
+        "react-hooks/immutability": "off",
+        "react-hooks/set-state-in-effect": "off"
+      }
+    }
+  ]
+}

@@ -67,6 +67,7 @@ export default function MachiningParametersForm({ params, disabled, onChange }: 
             onChange={(event) => onChange({ ...params, strategy: event.target.value as MachiningParams["strategy"] })}
             className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
           >
+            <option value="positive_part_external">Pieza positiva exterior</option>
             <option value="contour_parallel">Contour parallel</option>
             <option value="contour">Contour</option>
             <option value="zigzag">Zigzag</option>

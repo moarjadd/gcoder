@@ -15,6 +15,7 @@ from tests.stl_dataset import (
     rectangular_prism_mesh,
     semicylinder_curved_base_mesh,
     semicylinder_flat_base_mesh,
+    star_prism_mesh,
     stl_payload,
 )
 
@@ -24,6 +25,40 @@ client = TestClient(app)
 
 def _box_payload():
     return export_stl(trimesh.creation.box(extents=(10, 10, 4)))
+
+
+def _assert_safe_z_before_rapid_xy(gcode: str, safe_z: float):
+    current_z = None
+    for line in gcode.splitlines():
+        if line.startswith(";") or not line:
+            continue
+        tokens = line.split()
+        if tokens[0] in {"G0", "G1"}:
+            motion_tokens = line.split(";", 1)[0].split()
+            for token in motion_tokens[1:]:
+                if token.startswith("Z"):
+                    current_z = float(token[1:])
+            rapid_xy = tokens[0] == "G0" and any(token.startswith(("X", "Y")) for token in motion_tokens[1:])
+            if rapid_xy:
+                assert current_z is not None
+                assert current_z >= safe_z
+
+
+def _linear_cut_points(gcode: str):
+    current = {"x": None, "y": None, "z": None}
+    for line in gcode.splitlines():
+        motion = line.split(";", 1)[0].strip()
+        if not motion:
+            continue
+        tokens = motion.split()
+        if tokens[0] not in {"G0", "G1"}:
+            continue
+        for token in tokens[1:]:
+            axis = token[0]
+            if axis in {"X", "Y", "Z"}:
+                current[axis.lower()] = float(token[1:])
+        if tokens[0] == "G1" and current["x"] is not None and current["y"] is not None and (current["z"] or 0) < 0:
+            yield current["x"], current["y"], current["z"]
 
 
 def test_convert_endpoint_returns_gcode_for_simple_box():
@@ -48,6 +83,153 @@ def test_convert_endpoint_returns_gcode_for_simple_box():
     assert body["report"]["gcode_line_count"] == body["linesCount"]
     assert body["report"]["processing_time_seconds"] == body["report"]["processingTimeSeconds"]
     assert body["report"]["parameters_used"]["strategy"] == "contour"
+    assert body["report"]["machining_semantics"] == "legacy_internal_pocket"
+    assert body["report"]["uses_internal_pocket"] is True
+
+
+def test_convert_endpoint_defaults_to_positive_part_external_for_cube():
+    response = client.post(
+        "/api/convert",
+        files={"file": ("cube.stl", stl_payload(cube_mesh()), "model/stl")},
+        data={"params": json.dumps({"step_down_mm": 2.0, "safe_z_mm": 7.0})},
+    )
+
+    body = response.json()
+    report = body["report"]
+    metrics = report["metrics"]
+    assert response.status_code == 200, body
+    assert body["gcode"].strip()
+    assert report["parameters_used"]["strategy"] == "positive_part_external"
+    assert report["machining_semantics"] == "positive_part_external"
+    assert report["uses_internal_pocket"] is False
+    assert report["stock_margin_mm"] == report["parameters_used"]["stock_margin_mm"]
+    assert report["tool_radius_mm"] == report["parameters_used"]["tool_diameter_mm"] / 2
+    assert metrics["machining_semantics"] == "positive_part_external"
+    assert metrics["uses_internal_pocket"] is False
+    assert metrics["path_bounds"]["min"][0] < report["stock_margin_mm"]
+    assert metrics["path_bounds"]["max"][0] > report["stock_margin_mm"] + 10
+    assert metrics["path_bounds"]["min"][1] < report["stock_margin_mm"]
+    assert metrics["path_bounds"]["max"][1] > report["stock_margin_mm"] + 10
+    _assert_safe_z_before_rapid_xy(body["gcode"], 7.0)
+
+    protected_min = report["stock_margin_mm"] - report["tool_radius_mm"]
+    protected_max = report["stock_margin_mm"] + 10 + report["tool_radius_mm"]
+    rounding_tolerance = 0.01
+    for x, y, _z in _linear_cut_points(body["gcode"]):
+        assert not (
+            protected_min + rounding_tolerance < x < protected_max - rounding_tolerance
+            and protected_min + rounding_tolerance < y < protected_max - rounding_tolerance
+        )
+
+
+def test_convert_endpoint_rejects_positive_part_external_with_insufficient_stock_margin():
+    response = client.post(
+        "/api/convert",
+        files={"file": ("cube.stl", stl_payload(cube_mesh()), "model/stl")},
+        data={
+            "params": json.dumps(
+                {
+                    "strategy": "positive_part_external",
+                    "stock_margin_mm": 1.0,
+                    "tool_diameter_mm": 3.175,
+                }
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert "stock_margin_mm" in response.json()["detail"]
+    assert "mecanizado exterior" in response.json()["detail"]
+
+
+def test_convert_endpoint_generates_external_paths_for_rectangular_prism_and_cylinder():
+    cases = {
+        "rectangular-prism.stl": (rectangular_prism_mesh(), 24, 12),
+        "cylinder.stl": (cylinder_mesh(), 10, 10),
+    }
+
+    for filename, (mesh, width_x, width_y) in cases.items():
+        response = client.post(
+            "/api/convert",
+            files={"file": (filename, stl_payload(mesh), "model/stl")},
+            data={"params": json.dumps({"strategy": "positive_part_external", "step_down_mm": 2.0})},
+        )
+        body = response.json()
+        report = body["report"]
+        bounds = report["metrics"]["path_bounds"]
+
+        assert response.status_code == 200, body
+        assert body["gcode"].strip()
+        assert report["machining_semantics"] == "positive_part_external"
+        assert report["uses_internal_pocket"] is False
+        assert report["toolpath_move_count"] > 0
+        assert bounds["min"][0] < report["stock_margin_mm"]
+        assert bounds["max"][0] > report["stock_margin_mm"] + width_x
+        assert bounds["min"][1] < report["stock_margin_mm"]
+        assert bounds["max"][1] > report["stock_margin_mm"] + width_y
+
+
+def test_analyze_star_prism_detects_accessible_concavity():
+    response = client.post(
+        "/api/analyze",
+        files={"file": ("star-prism.stl", stl_payload(star_prism_mesh()), "model/stl")},
+    )
+    body = response.json()
+
+    assert response.status_code == 200, body
+    assert body["validation"]["isValid"] is True
+    assert body["machinability"]["isThreeAxisMachinable"] is True
+    assert body["machinability"]["isLikelyConvex"] is False
+    assert body["machinability"]["details"]["concavityDetected"] is True
+    assert body["thesisFriendlyStatus"] == "APTO_CON_ADVERTENCIAS"
+    assert any("cóncava" in warning or "convexa" in warning for warning in body["warnings"])
+
+
+def test_convert_star_prism_preserves_concavity_without_convex_hull_fallback():
+    response = client.post(
+        "/api/convert",
+        files={"file": ("star-prism.stl", stl_payload(star_prism_mesh()), "model/stl")},
+        data={"params": json.dumps({"strategy": "positive_part_external", "step_down_mm": 2.0})},
+    )
+    body = response.json()
+    report = body["report"]
+
+    assert response.status_code == 200, body
+    assert body["gcode"].strip()
+    assert report["machining_semantics"] == "positive_part_external"
+    assert report["uses_internal_pocket"] is False
+    assert report["concavity_detected"] is True
+    assert report["concavity_preserved"] is True
+    assert report["convex_hull_fallback_used"] is False
+    assert report["geometry_preservation_warning"] is False
+    assert "convex hull fallback" not in " ".join(report["anomalies"]).lower()
+
+
+def test_convert_star_prism_with_large_tool_reports_detail_loss_risk():
+    response = client.post(
+        "/api/convert",
+        files={"file": ("star-prism.stl", stl_payload(star_prism_mesh()), "model/stl")},
+        data={
+            "params": json.dumps(
+                {
+                    "strategy": "positive_part_external",
+                    "tool_diameter_mm": 7.0,
+                    "step_over_mm": 3.0,
+                    "stock_margin_mm": 12.0,
+                    "step_down_mm": 2.0,
+                }
+            )
+        },
+    )
+    body = response.json()
+    report = body["report"]
+
+    assert response.status_code == 200, body
+    assert body["gcode"].strip()
+    assert report["detail_loss_risk"] is True
+    assert report["geometry_preservation_warning"] is True
+    assert report["convex_hull_fallback_used"] is False
+    assert any("diámetro de herramienta" in warning for warning in report["warnings"])
 
 
 def test_convert_endpoint_gcode_has_complete_cnc_header_and_footer():
@@ -115,6 +297,7 @@ def test_controlled_dataset_has_expected_cases():
         "rectangular-prism.stl",
         "cylinder.stl",
         "cone.stl",
+        "star-prism.stl",
         "invalid-flat.stl",
         "overhang.stl",
         "semicylinder_flat_base.stl",

@@ -30,7 +30,7 @@ Variable de entorno:
 5. Ajustar parámetros CNC.
 6. Convertir y descargar `.nc`.
 
-La lógica antigua en TypeScript puede seguir existiendo como referencia, pero la fuente principal de análisis y conversión es el backend. El frontend no modifica físicamente el STL; envía `rotation_x_deg`, `rotation_y_deg`, `rotation_z_deg` y `scale` para que FastAPI aplique la transformación sobre la malla antes de analizar o convertir.
+La lógica antigua de análisis en TypeScript puede seguir existiendo como referencia, pero la fuente principal de análisis y conversión es el backend. El frontend no modifica físicamente el STL; envía `rotation_x_deg`, `rotation_y_deg`, `rotation_z_deg` y `scale` para que FastAPI aplique la transformación sobre la malla antes de analizar o convertir.
 
 El sistema no promete convertir cualquier STL. Solo debe usarse con modelos compatibles con mecanizado CNC router de 3 ejes y el G-code debe validarse antes de ejecutarse en máquina real.
 
@@ -60,4 +60,4 @@ frontend/
     types/                     # Tipos globales
 ```
 
-El backend es la fuente principal para analizar STL. Los archivos en `features/gcoder/legacy` no son la ruta oficial de análisis ni conversión; se conservan temporalmente como referencia histórica/fallback.
+El backend es la fuente principal para analizar y convertir STL. Los archivos en `features/gcoder/legacy` no son la ruta oficial; se conservan temporalmente como referencia histórica de análisis.

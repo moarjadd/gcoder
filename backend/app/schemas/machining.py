@@ -1,9 +1,10 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ToolpathStrategy(str, Enum):
+    positive_part_external = "positive_part_external"
     contour = "contour"
     zigzag = "zigzag"
     contour_parallel = "contour_parallel"
@@ -26,8 +27,8 @@ class MachiningParams(BaseModel):
     plunge_rate_mm_min: float = Field(default=200, gt=0)
     spindle_rpm: int = Field(default=12000, ge=0)
     safe_z_mm: float = Field(default=5.0, gt=0)
-    stock_margin_mm: float = Field(default=3.0, ge=0)
-    strategy: ToolpathStrategy = ToolpathStrategy.contour_parallel
+    stock_margin_mm: float = Field(default=6.0, ge=0)
+    strategy: ToolpathStrategy = ToolpathStrategy.positive_part_external
     tolerance_mm: float = Field(default=0.1, gt=0)
     origin: WorkOrigin = WorkOrigin.bottom_left
     units: Units = Units.mm
@@ -39,3 +40,11 @@ class MachiningParams(BaseModel):
         if tool and value > tool:
             raise ValueError("El stepover no debe ser mayor que el diámetro de la herramienta.")
         return value
+
+    @model_validator(mode="after")
+    def positive_part_strategy_needs_external_stock(self):
+        if self.strategy == ToolpathStrategy.positive_part_external and self.stock_margin_mm <= self.tool_diameter_mm:
+            raise ValueError(
+                "stock_margin_mm debe ser mayor que el diámetro de la herramienta para mecanizado exterior de pieza positiva."
+            )
+        return self

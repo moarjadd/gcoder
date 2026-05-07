@@ -1,6 +1,3 @@
-MM_PER_UNIT = 1.0
-
-
 def clean_mm(value: float, precision: int = 3) -> float:
     """Normalize machine coordinates and avoid unsafe-looking -0.000 output."""
 

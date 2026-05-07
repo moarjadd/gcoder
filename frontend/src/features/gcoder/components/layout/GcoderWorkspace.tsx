@@ -49,13 +49,6 @@ export default function GcoderWorkspace() {
   } = useGcoder()
   const showDebugToggle = process.env.NEXT_PUBLIC_GCODER_DEBUG === "true"
 
-  // Copiar al portapapeles desde aquí para el header sticky
-  const handleCopy = async () => {
-    if (gcode?.code) {
-      try { await navigator.clipboard.writeText(gcode.code) } catch {}
-    }
-  }
-
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden relative">
       <div className="fixed inset-0 z-0 geometric-pattern opacity-30" />

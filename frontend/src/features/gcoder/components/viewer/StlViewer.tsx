@@ -10,7 +10,6 @@ import {
   Edges,
   ContactShadows,
 } from "@react-three/drei"
-import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 import { STLLoader } from "three-stdlib"
 import { useCallback, useEffect, useState, useRef } from "react"
 import type { MutableRefObject } from "react"
@@ -33,6 +32,8 @@ type FrameData = {
   size: THREE.Vector3
   radius: number
 }
+
+type OrbitControlsRef = React.ComponentRef<typeof OrbitControls>
 
 // --- Componente del Modelo STL ---
 function StlModel({
@@ -188,7 +189,7 @@ function CameraFramer({
   controlsRef,
 }: {
   frame: FrameData | null
-  controlsRef: MutableRefObject<OrbitControlsImpl | null>
+  controlsRef: MutableRefObject<OrbitControlsRef | null>
 }) {
   const { camera } = useThree()
 
@@ -228,7 +229,7 @@ export default function StlViewer({
   uniformScale = 1,
   onDimensionsChange,
 }: StlViewerProps) {
-  const controlsRef = useRef<OrbitControlsImpl | null>(null)
+  const controlsRef = useRef<OrbitControlsRef | null>(null)
   const [canvasKey, setCanvasKey] = useState(0)
   const [renderer, setRenderer] = useState<THREE.WebGLRenderer | null>(null)
   const [dimensions, setDimensions] = useState<THREE.Vector3 | null>(null)
@@ -248,9 +249,9 @@ export default function StlViewer({
       event.preventDefault()
       setCanvasKey((k) => k + 1)
     }
-    canvas.addEventListener("webglcontextlost", handleContextLost as any)
+    canvas.addEventListener("webglcontextlost", handleContextLost)
     return () => {
-      canvas.removeEventListener("webglcontextlost", handleContextLost as any)
+      canvas.removeEventListener("webglcontextlost", handleContextLost)
     }
   }, [renderer])
 
@@ -351,7 +352,7 @@ export default function StlViewer({
         <CameraFramer frame={frameData} controlsRef={controlsRef} />
 
         <OrbitControls
-          ref={controlsRef as any}
+          ref={controlsRef}
           makeDefault
           enablePan
           enableZoom

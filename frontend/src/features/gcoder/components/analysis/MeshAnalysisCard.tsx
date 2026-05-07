@@ -88,7 +88,7 @@ export default function MeshAnalysisCard({ isAnalyzing, analysis, backendAnalysi
 
   // 3. Extracción de Datos (Priorizando el objeto estructurado)
   const { isConvex = false, convexityRatio = 0, machinability, details } = analysis ?? {}
-  const m = (machinability || {}) as any
+  const m = (machinability || {}) as Partial<ConvexityAnalysis["machinability"]>
   const backendMachinability = backendAnalysis?.machinability
   const backendDetails = backendMachinability?.details as Record<string, number> | undefined
 

@@ -29,6 +29,10 @@ export default function GCodePreview({
     () => code.replace(/\r\n/g, "\n").split("\n"),
     [code]
   )
+  const codeStyle = {
+    "--digits": String(String(codeLines.length).length),
+    "--gutter": `calc(var(--digits) * 1ch + 1.0rem)`,
+  } as React.CSSProperties & Record<"--digits" | "--gutter", string>
 
   const copyCode = async () => {
     try {
@@ -93,15 +97,7 @@ export default function GCodePreview({
       <div className="flex-1 bg-background/50 border border-border rounded-lg overflow-auto min-h-0">
         <pre
           className="relative m-0 p-4 font-mono text-xs leading-5 gc-code"
-          style={
-            {
-              // dígitos máximos del total de líneas (1ch por dígito)
-              // + padding fijo para respiración
-              // @ts-ignore - CSS vars
-              "--digits": String(codeLines.length).length,
-              "--gutter": `calc(var(--digits) * 1ch + 1.0rem)`,
-            } as React.CSSProperties
-          }
+          style={codeStyle}
         >
           {codeLines.map((ln, i) => (
             <span key={i} className="gc-line">

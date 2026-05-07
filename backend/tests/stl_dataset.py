@@ -20,6 +20,39 @@ def cone_mesh() -> trimesh.Trimesh:
     return trimesh.creation.cone(radius=5, height=8, sections=32)
 
 
+def star_prism_mesh(outer_radius: float = 8.0, inner_radius: float = 3.5, height: float = 6.0, points: int = 5) -> trimesh.Trimesh:
+    boundary = []
+    for index in range(points * 2):
+        radius = outer_radius if index % 2 == 0 else inner_radius
+        angle = (math.pi / 2.0) + (index * math.pi / points)
+        boundary.append((radius * math.cos(angle), radius * math.sin(angle)))
+
+    half_height = height / 2.0
+    vertices = [[0.0, 0.0, -half_height], [0.0, 0.0, half_height]]
+    vertices.extend([x, y, -half_height] for x, y in boundary)
+    vertices.extend([x, y, half_height] for x, y in boundary)
+
+    bottom_center = 0
+    top_center = 1
+    bottom_start = 2
+    top_start = 2 + len(boundary)
+    faces = []
+
+    for index in range(len(boundary)):
+        next_index = (index + 1) % len(boundary)
+        b0 = bottom_start + index
+        b1 = bottom_start + next_index
+        t0 = top_start + index
+        t1 = top_start + next_index
+
+        faces.append([bottom_center, b1, b0])
+        faces.append([top_center, t0, t1])
+        faces.append([b0, b1, t1])
+        faces.append([b0, t1, t0])
+
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
+
+
 def invalid_flat_mesh() -> trimesh.Trimesh:
     vertices = [
         [0.0, 0.0, 0.0],
@@ -84,6 +117,7 @@ CONTROLLED_STL_CASES = {
     "rectangular-prism.stl": rectangular_prism_mesh,
     "cylinder.stl": cylinder_mesh,
     "cone.stl": cone_mesh,
+    "star-prism.stl": star_prism_mesh,
     "invalid-flat.stl": invalid_flat_mesh,
     "overhang.stl": overhang_mesh,
     "semicylinder_flat_base.stl": semicylinder_flat_base_mesh,

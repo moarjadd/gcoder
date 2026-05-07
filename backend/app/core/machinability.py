@@ -117,6 +117,11 @@ def analyze_machinability(mesh, validation: dict | None = None) -> dict:
         )
     if base_flatness_score < 0.1:
         warnings.append("No se encontró una base plana clara en Z mínimo.")
+    concavity_detected = not is_likely_convex
+    if concavity_detected and underside_area_ratio <= 0.02 and complex_ratio <= 0.08:
+        warnings.append(
+            "La geometría no es estrictamente convexa, pero parece accesible desde Z; la precisión dependerá de la herramienta configurada."
+        )
 
     accessibility_score = max(0.0, min(1.0, 1.0 - (underside_area_ratio * 3.0 + complex_ratio * 2.0)))
     is_three_axis_machinable = not errors and not has_potential_undercuts and accessibility_score >= 0.7
@@ -140,6 +145,7 @@ def analyze_machinability(mesh, validation: dict | None = None) -> dict:
         "explanation": explanation,
         "details": {
             "convexityRatio": round(convexity_ratio, 4),
+            "concavityDetected": bool(concavity_detected),
             "undersideAreaRatio": round(underside_area_ratio, 4),
             **intersection_stats,
         },

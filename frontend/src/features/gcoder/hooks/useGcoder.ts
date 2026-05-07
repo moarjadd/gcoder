@@ -18,8 +18,12 @@ import { formatFileSize } from "@/features/gcoder/utils/formatting"
 import { Buffer } from "buffer" // shim Buffer para browser
 
 // shim Buffer en navegador si hiciera falta
-if (typeof window !== "undefined" && !(globalThis as any).Buffer) {
-  ;(globalThis as any).Buffer = Buffer
+type GlobalWithBuffer = typeof globalThis & { Buffer?: typeof Buffer }
+
+const globalWithBuffer = globalThis as GlobalWithBuffer
+
+if (typeof window !== "undefined" && !globalWithBuffer.Buffer) {
+  globalWithBuffer.Buffer = Buffer
 }
 
 type Analysis = ConvexityAnalysis | null 
@@ -46,6 +50,10 @@ function rotationToBackendTransform(modelRotation: ModelRotation, scale: number)
     rotation_z_deg: modelRotation.y * (180 / Math.PI),
     scale,
   }
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
 }
 
 export function useGcoder() {
@@ -206,7 +214,7 @@ export function useGcoder() {
       
       setAnalysis(res) // Pasa el objeto 'res' completo
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       setAnalysis({
         isConvex: false,
         meshVolume: 0,
@@ -214,7 +222,7 @@ export function useGcoder() {
         convexityRatio: 0,
         confidence: 0,
         machinability: MACHINABILITY_ERROR_STATE,
-        error: `Error analizando convexidad: ${err?.message || String(err)}`,
+        error: `Error analizando convexidad: ${getErrorMessage(err, String(err))}`,
       })
     }
 
@@ -223,8 +231,8 @@ export function useGcoder() {
       setBackendAnalysis(backendResult)
       setAnalyzedTransformRevision(requestedTransformRevision)
       setAnalyzedTransform(backendResult.transformApplied)
-    } catch (backendErr: any) {
-      setBackendAnalysisError(backendErr?.message || "Error al analizar el STL en el backend.")
+    } catch (backendErr: unknown) {
+      setBackendAnalysisError(getErrorMessage(backendErr, "Error al analizar el STL en el backend."))
     } finally {
       setIsAnalyzing(false)
     }
@@ -246,9 +254,9 @@ export function useGcoder() {
         estimatedTime: `${result.report.processingTimeSeconds.toFixed(2)}s proceso`,
         report: result.report,
       })
-    } catch (err: any) { // Mejor manejo de errores
+    } catch (err: unknown) { // Mejor manejo de errores
       console.error("Error al generar G-code:", err);
-      setConversionError(err?.message || "Error al convertir el STL en el backend.")
+      setConversionError(getErrorMessage(err, "Error al convertir el STL en el backend."))
       setGcode(null)
     }
     setIsConverting(false)

@@ -5,24 +5,13 @@ from shapely.ops import polygonize, unary_union
 from app.schemas.machining import MachiningParams
 
 
-def _closed_polyline_xy(polyline: np.ndarray, tolerance: float) -> list[list[float]] | None:
-    if polyline.shape[0] < 3:
-        return None
-    xy = polyline[:, :2].astype(float)
-    if np.linalg.norm(xy[0] - xy[-1]) > tolerance:
-        xy = np.vstack([xy, xy[0]])
-    if xy.shape[0] < 4:
-        return None
-    return [[round(float(x), 6), round(float(y), 6)] for x, y in xy]
-
-
 def _slice_levels(min_z: float, max_z: float, step_down: float, tolerance: float) -> list[float]:
     height = max_z - min_z
     if height <= tolerance:
         return []
     levels: list[float] = []
     z = max_z - step_down
-    floor = min_z + max(tolerance, step_down * 0.05)
+    floor = min_z + max(tolerance * 10.0, step_down * 0.5)
     while z >= floor:
         levels.append(float(z))
         z -= step_down
@@ -57,15 +46,9 @@ def _triangle_plane_segment(triangle: np.ndarray, z: float, tolerance: float):
     return None
 
 
-def _contours_at_z(mesh, z: float, tolerance: float) -> list[list[list[float]]]:
-    lines = []
-    for triangle in np.asarray(mesh.triangles):
-        segment = _triangle_plane_segment(triangle, z, tolerance)
-        if segment:
-            lines.append(LineString([(segment[0][0], segment[0][1]), (segment[1][0], segment[1][1])]))
-
+def _polygon_contours(polygons, tolerance: float) -> list[list[list[float]]]:
     contours: list[list[list[float]]] = []
-    for polygon in polygonize(lines):
+    for polygon in polygons:
         if polygon.area <= tolerance * tolerance:
             continue
         exterior = [[round(float(x), 6), round(float(y), 6)] for x, y in polygon.exterior.coords]
@@ -75,25 +58,44 @@ def _contours_at_z(mesh, z: float, tolerance: float) -> list[list[list[float]]]:
             hole = [[round(float(x), 6), round(float(y), 6)] for x, y in interior.coords]
             if len(hole) >= 4:
                 contours.append(hole)
+    return contours
+
+
+def _contours_at_z(mesh, z: float, tolerance: float) -> dict:
+    lines = []
+    for triangle in np.asarray(mesh.triangles):
+        segment = _triangle_plane_segment(triangle, z, tolerance)
+        if segment:
+            start = (round(float(segment[0][0]), 6), round(float(segment[0][1]), 6))
+            end = (round(float(segment[1][0]), 6), round(float(segment[1][1]), 6))
+            lines.append(LineString([start, end]))
+
+    contours = _polygon_contours(polygonize(lines), tolerance)
+    slicing_fallback_used = False
+    convex_hull_fallback_used = False
+    geometry_preservation_warning = False
+
     if not contours and lines:
-        for polygon in polygonize(unary_union(lines)):
-            if polygon.area <= tolerance * tolerance:
-                continue
-            exterior = [[round(float(x), 6), round(float(y), 6)] for x, y in polygon.exterior.coords]
-            if len(exterior) >= 4:
-                contours.append(exterior)
-            for interior in polygon.interiors:
-                hole = [[round(float(x), 6), round(float(y), 6)] for x, y in interior.coords]
-                if len(hole) >= 4:
-                    contours.append(hole)
+        slicing_fallback_used = True
+        contours = _polygon_contours(polygonize(unary_union(lines)), tolerance)
+
     if not contours and lines:
+        slicing_fallback_used = True
+        convex_hull_fallback_used = True
+        geometry_preservation_warning = True
         points = []
         for line in lines:
             points.extend(list(line.coords))
         hull = MultiPoint(points).convex_hull
         if hull.geom_type == "Polygon" and hull.area > tolerance * tolerance:
             contours.append([[round(float(x), 6), round(float(y), 6)] for x, y in hull.exterior.coords])
-    return contours
+
+    return {
+        "contours": contours,
+        "slicing_fallback_used": slicing_fallback_used,
+        "convex_hull_fallback_used": convex_hull_fallback_used,
+        "geometry_preservation_warning": geometry_preservation_warning,
+    }
 
 
 def slice_mesh(mesh, params: MachiningParams) -> dict:
@@ -103,12 +105,26 @@ def slice_mesh(mesh, params: MachiningParams) -> dict:
     levels = _slice_levels(min_z, max_z, params.step_down_mm, params.tolerance_mm)
     layers: list[dict] = []
     warnings: list[str] = []
+    convex_hull_fallback_used = False
+    slicing_fallback_used = False
+    geometry_preservation_warning = False
+    skipped_layers_count = 0
 
     for index, z in enumerate(levels):
-        contours = _contours_at_z(mesh, z, params.tolerance_mm)
+        section = _contours_at_z(mesh, z, params.tolerance_mm)
+        contours = section["contours"]
+        convex_hull_fallback_used = convex_hull_fallback_used or section["convex_hull_fallback_used"]
+        slicing_fallback_used = slicing_fallback_used or section["slicing_fallback_used"]
+        geometry_preservation_warning = geometry_preservation_warning or section["geometry_preservation_warning"]
+
         if not contours:
             warnings.append(f"La capa Z={z:.3f} mm produjo secciones abiertas o vacías.")
+            skipped_layers_count += 1
             continue
+        if section["convex_hull_fallback_used"]:
+            warnings.append(
+                f"La capa Z={z:.3f} mm usó convex hull fallback; la geometría original puede no preservarse."
+            )
 
         machine_z = z - max_z
         layers.append(
@@ -117,12 +133,19 @@ def slice_mesh(mesh, params: MachiningParams) -> dict:
                 "modelZ": round(z, 6),
                 "machineZ": round(machine_z, 6),
                 "contours": contours,
+                "slicingFallbackUsed": section["slicing_fallback_used"],
+                "convexHullFallbackUsed": section["convex_hull_fallback_used"],
+                "geometryPreservationWarning": section["geometry_preservation_warning"],
             }
         )
 
     return {
         "layers": layers,
         "warnings": warnings,
+        "convexHullFallbackUsed": convex_hull_fallback_used,
+        "slicingFallbackUsed": slicing_fallback_used,
+        "geometryPreservationWarning": geometry_preservation_warning,
+        "skippedLayersCount": skipped_layers_count,
         "modelBounds": {"min": bounds[0].tolist(), "max": bounds[1].tolist()},
         "coordinateConvention": {
             "units": "mm",

@@ -7,7 +7,7 @@ export type MachiningParams = {
   spindle_rpm: number
   safe_z_mm: number
   stock_margin_mm: number
-  strategy: "contour" | "zigzag" | "contour_parallel"
+  strategy: "positive_part_external" | "contour" | "zigzag" | "contour_parallel"
   tolerance_mm: number
   origin: "bottom_left" | "center"
   units: "mm"

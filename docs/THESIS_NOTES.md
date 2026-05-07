@@ -43,6 +43,14 @@ El endpoint acepta opcionalmente un campo `transform` como JSON. El backend apli
 
 El reporte de conversión incluye tiempo de procesamiento, número de capas, movimientos de herramienta, líneas de G-code, longitud estimada de trayectoria, límites XYZ, warnings y anomalías. La métrica RMSE queda preparada como `null` porque requiere una comparación geométrica posterior entre material removido y modelo objetivo; inventarla daría una precisión falsa.
 
+## Semántica de mecanizado de pieza positiva
+
+En la estrategia principal `positive_part_external`, el STL representa la pieza objetivo que debe conservarse. El backend construye un stock rectangular a partir del bounding box de la pieza expandido por `stock_margin_mm`; el área de remoción se interpreta como `stock - pieza`. Para compensar la herramienta, el centro de corte se limita a la zona externa al contorno protegido de la pieza, evitando trayectorias dentro del volumen que se desea conservar.
+
+Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se conservan como compatibilidad de pocket interno y se reportan como `legacy_internal_pocket`. No son la estrategia principal defendible para la tesis.
+
+El slicer no debe convertir silenciosamente un contorno cóncavo en una envolvente convexa. Si se usa `convex_hull` como último recurso, el reporte marca `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`, además de registrar una anomalía. Las concavidades accesibles verticalmente pueden convertirse con advertencias; si el diámetro de herramienta puede perder detalle, el reporte marca `detail_loss_risk` y recomienda reducir `tool_diameter_mm`.
+
 ## Estado funcional del prototipo MVP
 
 El prototipo MVP permite cargar archivos STL desde el frontend, enviarlos al backend FastAPI para análisis, validar propiedades básicas de la malla y estimar compatibilidad con mecanizado CNC router de 3 ejes. Si el modelo es válido y compatible, el usuario puede configurar parámetros CNC básicos y solicitar la conversión.

@@ -34,7 +34,7 @@ frontend/
 - `src/features/gcoder/components`: componentes específicos del flujo STL, visor, análisis, parámetros y G-code.
 - `src/features/gcoder/hooks`: estado de la experiencia G-Coder.
 - `src/features/gcoder/types`: contratos TypeScript para análisis, mecanizado y G-code.
-- `src/features/gcoder/legacy`: lógica histórica de análisis/conversión en navegador. Se conserva solo como fallback/comparación temporal.
+- `src/features/gcoder/legacy`: lógica histórica de análisis en navegador. Se conserva solo como comparación temporal mientras el backend sigue siendo la fuente principal.
 - `src/components/ui`: componentes genéricos shadcn/ui.
 - `src/lib`: utilidades transversales como `cn`, constantes y lectura de entorno.
 

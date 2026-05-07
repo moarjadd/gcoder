@@ -14,24 +14,6 @@ def _rotation_matrix(transform: ModelTransform) -> np.ndarray:
     return matrix
 
 
-def scale_mesh_uniform(mesh: trimesh.Trimesh, scale: float) -> trimesh.Trimesh:
-    transformed = mesh.copy()
-    transformed.apply_scale(float(scale))
-    return transformed
-
-
-def rotate_mesh_degrees(mesh: trimesh.Trimesh, rotation_x_deg: float = 0, rotation_y_deg: float = 0, rotation_z_deg: float = 0) -> trimesh.Trimesh:
-    transform = ModelTransform(
-        rotation_x_deg=rotation_x_deg,
-        rotation_y_deg=rotation_y_deg,
-        rotation_z_deg=rotation_z_deg,
-        scale=1.0,
-    )
-    transformed = mesh.copy()
-    transformed.apply_transform(_rotation_matrix(transform))
-    return transformed
-
-
 def normalize_mesh_to_cnc_coordinates(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     normalized = mesh.copy()
     if len(normalized.vertices) == 0:
@@ -51,16 +33,3 @@ def apply_model_transform(mesh: trimesh.Trimesh, transform: ModelTransform | Non
     transformed.apply_transform(_rotation_matrix(transform))
     transformed = normalize_mesh_to_cnc_coordinates(transformed)
     return transformed
-
-
-def mesh_bounds_and_dimensions(mesh: trimesh.Trimesh) -> dict:
-    bounds = np.asarray(mesh.bounds, dtype=float)
-    dimensions = (bounds[1] - bounds[0]).tolist()
-    return {
-        "bounds": {
-            "min": bounds[0].tolist(),
-            "max": bounds[1].tolist(),
-            "size": dimensions,
-        },
-        "dimensions": dimensions,
-    }

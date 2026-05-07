@@ -94,6 +94,19 @@ class ConversionReport(BaseModel):
     gcode_line_count: int
     processing_time_seconds: float
     parameters_used: dict[str, Any]
+    machining_semantics: str
+    stock_margin_mm: float
+    tool_radius_mm: float
+    uses_internal_pocket: bool
+    convex_hull_fallback_used: bool
+    slicing_fallback_used: bool
+    geometry_preservation_warning: bool
+    concavity_detected: bool
+    concavity_preserved: bool
+    detail_loss_risk: bool
+    tool_diameter_mm: float
+    skipped_layers_count: int
+    invalid_toolpath_layers_count: int
 
 
 class ConvertResponse(BaseModel):
