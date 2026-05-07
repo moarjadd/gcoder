@@ -1,0 +1,404 @@
+{
+  "generated_at": "2026-05-06T19:12:25.256599+00:00",
+  "project": "gcoder-v2",
+  "scope": "STL-only MVP",
+  "total_models": 8,
+  "summary": {
+    "analysis_ready": 7,
+    "conversion_success": 5,
+    "rejected": 3,
+    "errors": 0
+  },
+  "results": [
+    {
+      "model_name": "cube.stl",
+      "category": "valid_convex_solid",
+      "expected_behavior": "Malla valida y conversion exitosa.",
+      "analysis": {
+        "thesisFriendlyStatus": "APTO_PARA_CONVERSION",
+        "isValid": true,
+        "isThreeAxisMachinable": true,
+        "isLikelyConvex": true,
+        "hasPotentialUndercuts": false,
+        "accessibilityScore": 1.0,
+        "baseFlatnessScore": 1.0,
+        "warnings": [],
+        "errors": []
+      },
+      "conversion": {
+        "attempted": true,
+        "status": "success",
+        "layer_count": 5,
+        "toolpath_move_count": 40,
+        "gcode_line_count": 53,
+        "processing_time_seconds": 0.0115,
+        "warnings": [],
+        "anomalies": []
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "model_name": "rectangular-prism.stl",
+      "category": "valid_convex_solid",
+      "expected_behavior": "Malla valida y conversion exitosa con dimensiones no uniformes.",
+      "analysis": {
+        "thesisFriendlyStatus": "APTO_PARA_CONVERSION",
+        "isValid": true,
+        "isThreeAxisMachinable": true,
+        "isLikelyConvex": true,
+        "hasPotentialUndercuts": false,
+        "accessibilityScore": 1.0,
+        "baseFlatnessScore": 1.0,
+        "warnings": [],
+        "errors": []
+      },
+      "conversion": {
+        "attempted": true,
+        "status": "success",
+        "layer_count": 3,
+        "toolpath_move_count": 24,
+        "gcode_line_count": 37,
+        "processing_time_seconds": 0.0101,
+        "warnings": [],
+        "anomalies": []
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "model_name": "cylinder.stl",
+      "category": "valid_curved_solid",
+      "expected_behavior": "Malla valida y conversion exitosa para solido facetado.",
+      "analysis": {
+        "thesisFriendlyStatus": "APTO_PARA_CONVERSION",
+        "isValid": true,
+        "isThreeAxisMachinable": true,
+        "isLikelyConvex": false,
+        "hasPotentialUndercuts": false,
+        "accessibilityScore": 1.0,
+        "baseFlatnessScore": 0.7804,
+        "warnings": [],
+        "errors": []
+      },
+      "conversion": {
+        "attempted": true,
+        "status": "success",
+        "layer_count": 4,
+        "toolpath_move_count": 240,
+        "gcode_line_count": 253,
+        "processing_time_seconds": 0.0686,
+        "warnings": [],
+        "anomalies": []
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "model_name": "cone.stl",
+      "category": "valid_curved_solid",
+      "expected_behavior": "Malla valida y conversion exitosa con secciones variables.",
+      "analysis": {
+        "thesisFriendlyStatus": "APTO_PARA_CONVERSION",
+        "isValid": true,
+        "isThreeAxisMachinable": true,
+        "isLikelyConvex": false,
+        "hasPotentialUndercuts": false,
+        "accessibilityScore": 1.0,
+        "baseFlatnessScore": 0.7804,
+        "warnings": [],
+        "errors": []
+      },
+      "conversion": {
+        "attempted": true,
+        "status": "success",
+        "layer_count": 4,
+        "toolpath_move_count": 144,
+        "gcode_line_count": 157,
+        "processing_time_seconds": 0.0451,
+        "warnings": [
+          "Offset de herramienta vacío en capa 0; se usa contorno original."
+        ],
+        "anomalies": []
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "model_name": "invalid-flat.stl",
+      "category": "invalid_mesh",
+      "expected_behavior": "Rechazo por malla sin volumen o dimensiones utiles.",
+      "analysis": {
+        "thesisFriendlyStatus": "NO_APTO_MALLA_INVALIDA",
+        "isValid": false,
+        "isThreeAxisMachinable": false,
+        "isLikelyConvex": false,
+        "hasPotentialUndercuts": false,
+        "accessibilityScore": 1.0,
+        "baseFlatnessScore": 0.0,
+        "warnings": [
+          "La malla no está completamente cerrada; el análisis y el slicing pueden ser aproximados.",
+          "La malla no es cerrada; se permite el análisis, pero la compatibilidad 3 ejes es menos confiable.",
+          "No se encontró una base plana clara en Z mínimo."
+        ],
+        "errors": [
+          "El modelo tiene dimensiones nulas o demasiado pequeñas.",
+          "La malla tiene errores geométricos que impiden evaluar fabricabilidad."
+        ]
+      },
+      "conversion": {
+        "attempted": false,
+        "status": "rejected",
+        "layer_count": 0,
+        "toolpath_move_count": 0,
+        "gcode_line_count": 0,
+        "processing_time_seconds": 0.0,
+        "warnings": [],
+        "anomalies": [],
+        "reason": "Malla invalida; conversion no intentada."
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "model_name": "overhang.stl",
+      "category": "potential_undercut",
+      "expected_behavior": "Rechazo por geometria potencialmente no apta para CNC router de 3 ejes.",
+      "analysis": {
+        "thesisFriendlyStatus": "NO_APTO_POR_GEOMETRIA",
+        "isValid": true,
+        "isThreeAxisMachinable": false,
+        "isLikelyConvex": false,
+        "hasPotentialUndercuts": true,
+        "accessibilityScore": 0.0,
+        "baseFlatnessScore": 0.1111,
+        "warnings": [
+          "Se detectaron superficies descendentes fuera de la base; podrían representar socavados no accesibles desde Z.",
+          "Varias columnas verticales presentan múltiples intersecciones; revisar cavidades internas o zonas ocultas."
+        ],
+        "errors": []
+      },
+      "conversion": {
+        "attempted": false,
+        "status": "rejected",
+        "layer_count": 0,
+        "toolpath_move_count": 0,
+        "gcode_line_count": 0,
+        "processing_time_seconds": 0.0,
+        "warnings": [],
+        "anomalies": [],
+        "reason": "Geometria no apta; conversion no intentada."
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "model_name": "semicylinder_flat_base.stl",
+      "category": "orientation_case",
+      "expected_behavior": "Mejor fabricabilidad con cara plana apoyada en Z=0.",
+      "analysis": {
+        "thesisFriendlyStatus": "APTO_CON_ADVERTENCIAS",
+        "isValid": true,
+        "isThreeAxisMachinable": true,
+        "isLikelyConvex": false,
+        "hasPotentialUndercuts": false,
+        "accessibilityScore": 1.0,
+        "baseFlatnessScore": 1.0,
+        "warnings": [
+          "La orientación de algunas caras puede ser inconsistente."
+        ],
+        "errors": []
+      },
+      "conversion": {
+        "attempted": true,
+        "status": "success",
+        "layer_count": 3,
+        "toolpath_move_count": 24,
+        "gcode_line_count": 37,
+        "processing_time_seconds": 0.0662,
+        "warnings": [
+          "La orientación de algunas caras puede ser inconsistente."
+        ],
+        "anomalies": []
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "model_name": "semicylinder_curved_base.stl",
+      "category": "orientation_case",
+      "expected_behavior": "Menor fabricabilidad con superficie curva hacia la base.",
+      "analysis": {
+        "thesisFriendlyStatus": "NO_APTO_POR_GEOMETRIA",
+        "isValid": true,
+        "isThreeAxisMachinable": false,
+        "isLikelyConvex": false,
+        "hasPotentialUndercuts": true,
+        "accessibilityScore": 0.0,
+        "baseFlatnessScore": 0.1472,
+        "warnings": [
+          "La orientación de algunas caras puede ser inconsistente.",
+          "Se detectaron superficies descendentes fuera de la base; podrían representar socavados no accesibles desde Z."
+        ],
+        "errors": []
+      },
+      "conversion": {
+        "attempted": false,
+        "status": "rejected",
+        "layer_count": 0,
+        "toolpath_move_count": 0,
+        "gcode_line_count": 0,
+        "processing_time_seconds": 0.0,
+        "warnings": [],
+        "anomalies": [],
+        "reason": "Geometria no apta; conversion no intentada."
+      },
+      "parameters_used": {
+        "tool_diameter_mm": 3.175,
+        "step_down_mm": 2.0,
+        "step_over_mm": 1.5,
+        "feed_rate_mm_min": 800.0,
+        "plunge_rate_mm_min": 200.0,
+        "spindle_rpm": 12000,
+        "safe_z_mm": 5.0,
+        "stock_margin_mm": 3.0,
+        "strategy": "contour",
+        "tolerance_mm": 0.1,
+        "origin": "bottom_left",
+        "units": "mm"
+      },
+      "transformApplied": {
+        "rotation_x_deg": 0.0,
+        "rotation_y_deg": 0.0,
+        "rotation_z_deg": 0.0,
+        "scale": 1.0
+      }
+    }
+  ]
+}

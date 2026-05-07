@@ -1,27 +1,171 @@
-# Dependencias
-node_modules
-pnpm-lock.yaml
+# G-Coder v2 ignore rules
 
-# Next.js
-.next
-out
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Frontend / Next.js
+.next/
+**/.next/
+out/
+**/out/
+dist/
+**/dist/
+build/
+**/build/
+.turbo/
+**/.turbo/
+.vercel/
+**/.vercel/
+*.tsbuildinfo
+
+# Python / FastAPI
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+**/.mypy_cache/
+.ruff_cache/
+**/.ruff_cache/
+.hypothesis/
+**/.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+**/htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+backend/.venv/
+backend/venv/
+backend/env/
+
+# Security / secrets
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+secrets/
+**/secrets/
+.secrets/
+**/.secrets/
+credentials/
+**/credentials/
+*credentials*.json
+*token*.json
+*.local.json
 
 # Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-*.log
 
-# Entornos
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Local generated files and temporary workspaces
+tmp/
+temp/
+.tmp/
+.temp/
+**/tmp/
+**/temp/
+**/.tmp/
+**/.temp/
+uploads/*
+**/uploads/*
+output/*
+outputs/*
+generated/*
+**/output/*
+**/outputs/*
+**/generated/*
+backend/uploads/*
+backend/output/*
+backend/outputs/*
+backend/generated/*
+backend/storage/uploads/*
+backend/storage/outputs/*
+backend/reports/generated/*
+backend/reports/local/*
+backend/reports/tmp/*
+!uploads/.gitkeep
+!**/uploads/.gitkeep
+!output/.gitkeep
+!outputs/.gitkeep
+!**/output/.gitkeep
+!**/outputs/.gitkeep
+!backend/storage/uploads/.gitkeep
+!backend/storage/outputs/.gitkeep
+!backend/reports/generated/.gitkeep
+!backend/reports/local/.gitkeep
+!backend/reports/tmp/.gitkeep
 
-# OS / Editor
+# Generated machine files
+*.gcode
+*.nc
+*.tap
+
+# Local databases, dumps and backups
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.dump.sql
+*.sql.gz
+dump*.sql
+backup*.sql
+*.bak
+*.backup
+*.orig
+*.tmp
+*.temp
+*.swp
+*.swo
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+!tests/fixtures/**/*.sqlite
+!tests/fixtures/**/*.sqlite3
+!tests/fixtures/**/*.db
+!backend/tests/fixtures/**/*.sqlite
+!backend/tests/fixtures/**/*.sqlite3
+!backend/tests/fixtures/**/*.db
+
+# OS files
 .DS_Store
 Thumbs.db
-.vscode/
+Desktop.ini
+
+# IDE / editor local settings
 .idea/
+**/.idea/
+**/.vscode/*
+!**/.vscode/extensions.json
+!**/.vscode/settings.json
+!**/.vscode/launch.json
+!**/.vscode/tasks.json

@@ -1,0 +1,38 @@
+# Project-wide ignore rules live in ../.gitignore.
+# Keep this file minimal so lockfiles and reproducibility files are not hidden.
+
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.template
+
+# OS / local editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
