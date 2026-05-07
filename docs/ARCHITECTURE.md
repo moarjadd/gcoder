@@ -67,10 +67,24 @@ El endpoint `POST /api/analyze` es la etapa principal previa a cualquier convers
    - normalización a coordenadas CNC,
    - validación de malla,
    - análisis de fabricabilidad vertical,
-   - slicing por planos Z,
-   - generación básica de trayectorias,
+   - slicing manual por planos Z mediante intersección triángulo-plano,
+   - generación básica de trayectorias con la estrategia principal `positive_part_external`,
    - postprocesado a G-code,
    - reporte de métricas.
+
+```mermaid
+flowchart TD
+  A[Carga STL] --> B[Trimesh load]
+  B --> C[Validación estructural]
+  C --> D[Advertencias topológicas]
+  D --> E[Análisis de fabricabilidad 3 ejes]
+  E --> F[Evaluación de convexidad]
+  F --> G[Estado operativo]
+  G -->|Convierte| H[Slicing Z manual]
+  H --> I[Toolpath positive_part_external]
+  I --> J[G-code seguro]
+  G -->|Rechaza| K[Reporte de errores y advertencias]
+```
 
 ## Alcance
 
@@ -79,6 +93,36 @@ El MVP actual está diseñado solo para modelos STL compatibles con mecanizado C
 OBJ y PLY quedan como mejora futura de soporte de mallas. STEP e IGES quedan fuera del MVP porque requieren un pipeline CAD/B-Rep diferente.
 
 No es un CAM industrial: no implementa simulación completa de remoción de material, detección perfecta de colisiones, selección automática avanzada de herramienta/material, optimización industrial ni mecanizado de 4 o 5 ejes.
+
+## Slicing Z
+
+Trimesh se usa para cargar y representar la malla STL. El slicing del backend no usa directamente `mesh.section(...)`; está implementado en `backend/app/core/slicer.py` mediante intersección manual de los triángulos de `mesh.triangles` contra planos horizontales en Z. El sistema calcula `minZ` y `maxZ` desde `mesh.bounds`, genera niveles desde `maxZ - step_down_mm` hacia niveles inferiores, proyecta los puntos de intersección a XY y reconstruye contornos 2D con Shapely (`LineString`, `polygonize`, `unary_union`).
+
+Si una sección no cierra correctamente, se registra una advertencia. El slicer puede usar `convex_hull` como último recurso, pero no lo hace silenciosamente: la conversión reporta `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`.
+
+## Toolpath de Pieza Positiva
+
+La estrategia principal para tesis es `positive_part_external`. En esta estrategia, el STL representa la pieza positiva a conservar, el stock representa el bloque inicial de material y las trayectorias se generan sobre el material externo sobrante. Aunque el código no guarda necesariamente una variable llamada `removal_area`, implementa la lógica equivalente mediante el área permitida para el centro de la herramienta:
+
+```text
+tool_radius = tool_diameter_mm / 2
+piece_keepout = piece_polygon.buffer(tool_radius)
+stock_inside = stock_polygon.buffer(-tool_radius)
+tool_center_allowed_area = stock_inside - piece_keepout
+```
+
+El objetivo es evitar que el centro de la fresa invada el contorno protegido de la pieza. Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se mantienen por compatibilidad y se reportan como `legacy_internal_pocket`, no como estrategia principal de tesis.
+
+## Heurísticas de Fabricabilidad
+
+La fabricabilidad no es una simulación CAM industrial. El backend usa reglas geométricas simplificadas: convexidad aproximada, área de superficies descendentes fuera de la base, muestreo vertical por columnas y puntaje de accesibilidad. Los umbrales actuales son:
+
+- `convexity_ratio >= 0.98`: geometría probablemente convexa.
+- `accessibility_score >= 0.7`: geometría probablemente accesible desde Z.
+- `underside_area_ratio > 0.02`: riesgo de socavado.
+- `complex_ratio > 0.08`: riesgo geométrico por múltiples intersecciones verticales.
+
+Las mallas vacías, sin caras, sin vértices o con dimensiones inválidas se clasifican como `NO_APTO_MALLA_INVALIDA`. Una malla no watertight o con winding inconsistente genera advertencias topológicas; no bloquea siempre la conversión si la geometría sigue siendo procesable.
 
 ## Convención CNC
 

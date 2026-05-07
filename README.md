@@ -8,9 +8,11 @@ G-Coder V2 no busca reemplazar un CAM industrial ni convertir cualquier STL. El 
 
 El flujo soportado es:
 
-`STL -> validación de malla -> análisis de compatibilidad CNC de 3 ejes -> slicing -> trayectorias básicas -> G-code -> reporte`
+`STL -> validación de malla -> análisis de compatibilidad CNC de 3 ejes -> slicing Z -> toolpath positive_part_external -> G-code seguro -> reporte`
 
 El sistema acepta modelos convexos y geometrías con concavidades accesibles verticalmente, siempre que no presenten socavados evidentes.
+
+En la estrategia principal `positive_part_external`, el STL representa la pieza positiva a conservar. El stock se interpreta como el bloque inicial de material, expandido desde el bounding box del modelo mediante `stock_margin_mm`; la trayectoria se genera sobre el material externo sobrante, evitando que el centro de la herramienta invada el contorno protegido de la pieza.
 
 ## Ejecutar
 
@@ -21,7 +23,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 Frontend:
@@ -52,7 +54,9 @@ URLs por defecto:
 ## Limitaciones actuales
 
 - Solo soporta STL.
+- Trimesh se usa para cargar y representar la malla STL; el slicing se implementa manualmente mediante intersección triángulo-plano en niveles Z.
 - El análisis de compatibilidad 3 ejes usa heurísticas, no una simulación CAM industrial.
+- Las mallas no watertight o con winding inconsistente generan advertencias topológicas; no siempre bloquean la conversión si la geometría sigue siendo procesable.
 - El G-code generado debe validarse antes de ejecutarse en una máquina real.
 - No calcula RMSE ni métricas de precisión física todavía.
 

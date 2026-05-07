@@ -16,6 +16,15 @@ No reemplaza un CAM industrial. No garantiza mecanizar cualquier STL. No realiza
 
 “Fabricable” en este prototipo significa que el modelo parece compatible con una herramienta vertical de 3 ejes bajo reglas simplificadas. El análisis acepta concavidades accesibles desde Z, pero marca como riesgo los socavados, superficies ocultas o múltiples intersecciones verticales complejas.
 
+La fabricabilidad se evalúa como heurística geométrica, no como garantía CAM industrial. Los umbrales operativos actuales son:
+
+- `convexity_ratio >= 0.98`: el modelo se considera probablemente convexo.
+- `accessibility_score >= 0.7`: la geometría se considera probablemente accesible desde Z.
+- `underside_area_ratio > 0.02`: se marca riesgo de socavado.
+- `complex_ratio > 0.08`: se marca riesgo geométrico por múltiples intersecciones verticales.
+
+Las mallas vacías, sin caras, sin vértices o con dimensiones inválidas se clasifican como `NO_APTO_MALLA_INVALIDA`. Las mallas no watertight o con winding inconsistente generan advertencias topológicas y pueden continuar si no existen errores estructurales graves y la geometría sigue siendo procesable.
+
 ## Arquitectura del sistema desarrollado
 
 El sistema se organiza como una aplicación web por capas. El frontend, construido con Next.js y React, cumple el rol de interfaz de interacción: carga de archivos STL, visualización 3D, configuración de parámetros y presentación de resultados. La lógica específica de la tesis se concentra en `features/gcoder`, separando componentes visuales, hooks, cliente API, tipos y utilidades.
@@ -25,6 +34,20 @@ El backend, construido con FastAPI, cumple el rol de motor de análisis geométr
 El endpoint `/api/analyze` representa la etapa previa a la conversión STL a G-code. Esta separación permite probar el análisis de forma aislada, comparar casos de estudio y documentar resultados sin depender de la interfaz visual. Metodológicamente, facilita repetir experimentos y justificar por qué un modelo es aceptado con advertencias, rechazado por malla inválida o marcado como no compatible por geometría.
 
 La orientación del modelo se considera parte del problema de fabricabilidad. En CNC router de 3 ejes el eje `Z` es la dirección vertical de mecanizado; por lo tanto, rotar la pieza puede cambiar qué caras son accesibles, si existe una base adecuada y si aparecen posibles socavados.
+
+```mermaid
+flowchart TD
+  A[Carga STL] --> B[Trimesh load]
+  B --> C[Validación estructural]
+  C --> D[Advertencias topológicas]
+  D --> E[Análisis de fabricabilidad 3 ejes]
+  E --> F[Evaluación de convexidad]
+  F --> G[Estado operativo]
+  G -->|Convierte| H[Slicing Z manual]
+  H --> I[Toolpath positive_part_external]
+  I --> J[G-code seguro]
+  G -->|Rechaza| K[Reporte de errores y advertencias]
+```
 
 ## Endpoint `/api/analyze`
 
@@ -43,13 +66,87 @@ El endpoint acepta opcionalmente un campo `transform` como JSON. El backend apli
 
 El reporte de conversión incluye tiempo de procesamiento, número de capas, movimientos de herramienta, líneas de G-code, longitud estimada de trayectoria, límites XYZ, warnings y anomalías. La métrica RMSE queda preparada como `null` porque requiere una comparación geométrica posterior entre material removido y modelo objetivo; inventarla daría una precisión falsa.
 
+## Slicing en Z
+
+Trimesh se usa para cargar y representar la malla STL, pero el rebanado no usa directamente `mesh.section(...)`. El backend implementa el slicing en `backend/app/core/slicer.py` mediante intersección manual triángulo-plano.
+
+El flujo real es:
+
+1. `slice_mesh` obtiene `min_z` y `max_z` desde `mesh.bounds`.
+2. `_slice_levels` genera niveles desde `max_z - step_down_mm` hacia niveles inferiores.
+3. `_triangle_plane_segment` intersecta cada triángulo de `mesh.triangles` contra un plano horizontal en Z.
+4. Los puntos de intersección se proyectan a XY.
+5. `_contours_at_z` reconstruye contornos 2D usando Shapely (`LineString`, `polygonize`, `unary_union`).
+
+Matemáticamente, el corte equivale a planos horizontales con normal Z, aunque el código no declare una variable explícita `plane_normal = [0, 0, 1]`.
+
+Si la reconstrucción de contornos falla, el slicer puede intentar un fallback. El uso de `convex_hull` existe solo como último recurso y queda reportado mediante `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`; no debe interpretarse como preservación estricta de geometría.
+
 ## Semántica de mecanizado de pieza positiva
 
 En la estrategia principal `positive_part_external`, el STL representa la pieza objetivo que debe conservarse. El backend construye un stock rectangular a partir del bounding box de la pieza expandido por `stock_margin_mm`; el área de remoción se interpreta como `stock - pieza`. Para compensar la herramienta, el centro de corte se limita a la zona externa al contorno protegido de la pieza, evitando trayectorias dentro del volumen que se desea conservar.
 
+La implementación no depende necesariamente de una variable llamada `removal_area`; usa el área permitida para el centro de la herramienta:
+
+```text
+tool_radius = tool_diameter_mm / 2
+piece_keepout = piece_polygon.buffer(tool_radius)
+stock_inside = stock_polygon.buffer(-tool_radius)
+tool_center_allowed_area = stock_inside - piece_keepout
+```
+
 Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se conservan como compatibilidad de pocket interno y se reportan como `legacy_internal_pocket`. No son la estrategia principal defendible para la tesis.
 
 El slicer no debe convertir silenciosamente un contorno cóncavo en una envolvente convexa. Si se usa `convex_hull` como último recurso, el reporte marca `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`, además de registrar una anomalía. Las concavidades accesibles verticalmente pueden convertirse con advertencias; si el diámetro de herramienta puede perder detalle, el reporte marca `detail_loss_risk` y recomienda reducir `tool_diameter_mm`.
+
+## Parámetros de corte y G-code
+
+El usuario configura desde el frontend los parámetros principales de mecanizado:
+
+- `tool_diameter_mm`: diámetro de herramienta; define el radio usado en compensación.
+- `step_down_mm`: profundidad por pasada; controla los niveles Z del slicing.
+- `step_over_mm`: separación lateral entre pasadas.
+- `feed_rate_mm_min`: avance lateral; se emite como `F` en movimientos `G1` XY.
+- `plunge_rate_mm_min`: avance vertical; se emite como `F` al bajar en Z.
+- `spindle_rpm`: velocidad del husillo; se emite como `M3 S...`.
+- `safe_z_mm`: altura segura para movimientos rápidos.
+- `stock_margin_mm`: margen externo del stock alrededor de la pieza.
+- `strategy`: estrategia de toolpath.
+- `origin`: origen de coordenadas.
+
+`tolerance_mm` existe en backend y en los tipos/defaults del frontend, pero no se expone como campo editable principal. `units` existe como enum fijo en milímetros y se materializa en el G-code mediante `G21`.
+
+El header actual generado por el postprocesador es:
+
+```gcode
+G21
+G90
+G17
+G94
+G54
+G0 Z{safe_z_mm}
+M3 S{spindle_rpm}
+```
+
+Significado:
+
+- `G21`: unidades en milímetros.
+- `G90`: coordenadas absolutas.
+- `G17`: plano XY.
+- `G94`: avance en unidades por minuto.
+- `G54`: sistema de coordenadas de trabajo.
+- `G0 Z{safe_z_mm}`: subida a altura segura.
+- `M3 S{spindle_rpm}`: encendido del spindle con RPM configuradas.
+
+El footer actual es:
+
+```gcode
+G0 Z{safe_z_mm}
+M5
+M30
+```
+
+`M5` apaga el spindle y `M30` finaliza el programa. Además, el postprocesador inserta una subida a `safe_z_mm` antes de movimientos rápidos XY si la herramienta está por debajo de la altura segura.
 
 ## Estado funcional del prototipo MVP
 

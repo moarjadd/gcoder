@@ -9,7 +9,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 API local: `http://127.0.0.1:8000`
@@ -63,6 +63,8 @@ La respuesta incluye:
 
 El análisis no garantiza fabricación real. Indica si el modelo parece compatible bajo reglas simplificadas y recomienda validar trayectorias antes de ejecutar en máquina.
 
+Las mallas vacías, sin caras, sin vértices o con dimensiones inválidas se consideran no aptas por malla inválida. En cambio, una malla no watertight o con winding inconsistente genera advertencias topológicas; puede continuar si no hay errores estructurales graves y la geometría resulta procesable.
+
 ## Parámetros CNC soportados
 
 - `tool_diameter_mm`
@@ -72,10 +74,28 @@ El análisis no garantiza fabricación real. Indica si el modelo parece compatib
 - `plunge_rate_mm_min`
 - `spindle_rpm`
 - `safe_z_mm`
+- `stock_margin_mm`
 - `tolerance_mm`
 - `strategy`
+- `origin`
+- `units`
 
-Valores por defecto principales: herramienta `3.175 mm`, step down `1.0 mm`, stepover `1.5 mm`, avance XY `800 mm/min`, avance Z `200 mm/min`, spindle `12000 RPM`, Z seguro `5.0 mm`, tolerancia `0.1 mm`, estrategia `contour_parallel`.
+Valores por defecto principales: herramienta `3.175 mm`, step down `1.0 mm`, stepover `1.5 mm`, avance XY `800 mm/min`, avance Z `200 mm/min`, spindle `12000 RPM`, Z seguro `5.0 mm`, margen de stock `6.0 mm`, tolerancia `0.1 mm`, estrategia `positive_part_external`, origen `bottom_left` y unidades `mm`.
+
+El usuario configura los parámetros principales desde el frontend. `tolerance_mm` existe en el backend y en los tipos/defaults del frontend, pero no se expone como campo editable principal. `units` está restringido a milímetros y se materializa en el G-code mediante `G21`.
+
+Uso real de parámetros:
+
+- `tool_diameter_mm`: calcula `tool_radius = tool_diameter_mm / 2` para compensación de herramienta.
+- `step_down_mm`: controla los niveles Z del slicing.
+- `step_over_mm`: separa pasadas laterales dentro del área externa permitida.
+- `feed_rate_mm_min`: se emite como `F` en movimientos lineales XY.
+- `plunge_rate_mm_min`: se emite como `F` al bajar en Z.
+- `spindle_rpm`: se emite como `M3 S...`.
+- `safe_z_mm`: define la altura segura antes de movimientos rápidos XY y al finalizar.
+- `stock_margin_mm`: expande el stock exterior alrededor de la pieza.
+- `strategy`: selecciona la estrategia de toolpath; la principal para tesis es `positive_part_external`.
+- `origin`: controla el mapeo XY final, por ejemplo `bottom_left` o `center`.
 
 ## Transformaciones del modelo
 
@@ -106,6 +126,45 @@ La transformación se aplica antes de validación, fabricabilidad, slicing, tool
 - Tras rotar/escalar, el backend normaliza la malla para que `minZ=0` y `minX/minY=0`.
 - El programa sube a `safe_z_mm` antes de traslados rápidos XY.
 - Footer: `M5`, `M30`.
+
+Header exacto generado por el postprocesador:
+
+```gcode
+G21
+G90
+G17
+G94
+G54
+G0 Z{safe_z_mm}
+M3 S{spindle_rpm}
+```
+
+Footer exacto:
+
+```gcode
+G0 Z{safe_z_mm}
+M5
+M30
+```
+
+El postprocesador también inserta una subida a `safe_z_mm` antes de cualquier movimiento rápido XY si la herramienta está por debajo de la altura segura.
+
+## Slicing y compensación de herramienta
+
+Trimesh se usa para cargar y representar la malla STL. El slicing no llama directamente a `mesh.section(...)`; el backend implementa el corte mediante intersección manual triángulo-plano sobre `mesh.triangles`. Para cada nivel Z calculado con `step_down_mm`, se intersectan triángulos contra un plano horizontal, se proyectan los puntos a XY y se reconstruyen contornos 2D usando Shapely (`LineString`, `polygonize`, `unary_union`).
+
+Si una sección no cierra correctamente, el slicer intenta reconstruirla con `unary_union`. Como último recurso puede usar `convex_hull`, pero el resultado queda marcado con `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`.
+
+En la estrategia principal `positive_part_external`, el STL es la pieza positiva a conservar. El código no guarda necesariamente una variable llamada `removal_area`, pero implementa la lógica equivalente mediante el área permitida para el centro de la herramienta:
+
+```text
+tool_radius = tool_diameter_mm / 2
+piece_keepout = piece_polygon.buffer(tool_radius)
+stock_inside = stock_polygon.buffer(-tool_radius)
+tool_center_allowed_area = stock_inside - piece_keepout
+```
+
+El objetivo es que el centro de la fresa se mueva sobre el material externo sobrante y no invada la pieza. Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se conservan para compatibilidad, pero se reportan como `legacy_internal_pocket`.
 
 El backend no promete mecanizar cualquier STL ni sustituir un CAM industrial. Advierte o rechaza modelos con errores graves o posibles socavados según heurísticas simplificadas.
 
