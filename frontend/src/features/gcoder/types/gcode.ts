@@ -1,5 +1,11 @@
 import type { ModelTransform } from "./transform"
 
+export type StockDimensions = {
+  x: number
+  y: number
+  z: number
+}
+
 export type ConvertResponse = {
   status: "success" | "error"
   filename: string
@@ -46,9 +52,18 @@ export type ConvertResponse = {
     total_holes_detected: number
     total_holes_preserved: number
     layer_geometry_warnings: string[]
+    model_dimensions_mm: StockDimensions
+    algorithm_stock_mm: StockDimensions
+    recommended_physical_stock_mm: StockDimensions
+    stock_margin_xy_mm: number
+    recommended_margin_xy_mm: number
+    recommended_extra_z_mm: number
     tool_diameter_mm: number
     skipped_layers_count: number
     invalid_toolpath_layers_count: number
+    work_origin_assumption: string
+    z_zero_assumption: string
+    stock_notes: string[]
     estimated_offset_passes_per_layer: number
     estimated_operation_complexity: number
     recommended_max_layers: number

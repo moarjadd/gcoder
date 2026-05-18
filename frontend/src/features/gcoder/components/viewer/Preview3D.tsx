@@ -33,6 +33,7 @@ type Props = {
   dimensions?: { x: number; y: number; z: number } | null
   onDimensionsChange?: (dimensions: { x: number; y: number; z: number }) => void
   isModelModified?: boolean
+  isModelLocked?: boolean
   isAnalyzed?: boolean
 }
 
@@ -61,8 +62,10 @@ function Preview3DBase({
   dimensions,
   onDimensionsChange,
   isModelModified,
+  isModelLocked,
   isAnalyzed,
 }: Props) {
+  const transformsDisabled = isConverting || Boolean(isModelLocked)
   const viewerProps = React.useMemo(
     () => ({
       data,
@@ -146,6 +149,7 @@ function Preview3DBase({
             {onResetTransform && (
               <Button
                 onClick={onResetTransform}
+                disabled={transformsDisabled}
                 variant="outline"
                 className="h-8 px-2 text-xs"
                 title="Restablecer orientación y escala"
@@ -161,6 +165,7 @@ function Preview3DBase({
             {/* 1. Rotar en Y (Izquierda/Derecha) -> PRIMEROS */}
             <Button
               onClick={() => rotateModel("y", -90)}
+              disabled={transformsDisabled}
               variant="outline"
               className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
               title="Rotar Y -90° (Izquierda)"
@@ -169,6 +174,7 @@ function Preview3DBase({
             </Button>
             <Button
               onClick={() => rotateModel("y", 90)}
+              disabled={transformsDisabled}
               variant="outline"
               className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
               title="Rotar Y +90° (Derecha)"
@@ -179,6 +185,7 @@ function Preview3DBase({
             {/* 2. Rotar en Z (Horario/Anti-horario) -> EN MEDIO */}
             <Button
               onClick={() => rotateModel("z", -90)}
+              disabled={transformsDisabled}
               variant="outline"
               className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
               title="Rotar Z -90° (Anti-horario)"
@@ -187,6 +194,7 @@ function Preview3DBase({
             </Button>
             <Button
               onClick={() => rotateModel("z", 90)}
+              disabled={transformsDisabled}
               variant="outline"
               className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
               title="Rotar Z +90° (Horario)"
@@ -197,6 +205,7 @@ function Preview3DBase({
             {/* 3. Rotar en X (Arriba/Abajo) -> ÚLTIMOS */}
             <Button
               onClick={() => rotateModel("x", -90)}
+              disabled={transformsDisabled}
               variant="outline"
               className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
               title="Rotar X -90° (Abajo)"
@@ -205,6 +214,7 @@ function Preview3DBase({
             </Button>
             <Button
               onClick={() => rotateModel("x", 90)}
+              disabled={transformsDisabled}
               variant="outline"
               className="h-9 w-full px-0 cursor-pointer disabled:cursor-not-allowed"
               title="Rotar X +90° (Arriba)"
@@ -222,6 +232,7 @@ function Preview3DBase({
                   <span className="font-mono text-foreground">{modelScale.toFixed(2)}x</span>
                 </div>
                 <input
+                  disabled={transformsDisabled}
                   type="range"
                   min="0.1"
                   max="5"
@@ -232,6 +243,7 @@ function Preview3DBase({
                 />
               </div>
               <input
+                disabled={transformsDisabled}
                 type="number"
                 min="0.1"
                 max="5"
@@ -253,6 +265,12 @@ function Preview3DBase({
           {isModelModified && isAnalyzed && (
             <p className="text-xs text-yellow-200">
               El modelo fue modificado en la vista. Usa Analizar/Reanalizar antes de generar G-code definitivo.
+            </p>
+          )}
+
+          {isModelLocked && (
+            <p className="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-2 text-xs text-yellow-100">
+              El modelo está bloqueado porque ya se generó el G-code. Para modificarlo, quite el resultado actual o vuelva a cargar el STL.
             </p>
           )}
         </div>

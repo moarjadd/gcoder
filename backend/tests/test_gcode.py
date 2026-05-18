@@ -2,6 +2,20 @@ from app.core.postprocessor import generate_gcode
 from app.schemas.machining import MachiningParams
 
 
+def _assert_no_gcode_comments(gcode: str):
+    assert not any(line.startswith(";") for line in gcode.splitlines())
+    assert ";" not in gcode
+    assert "(" not in gcode
+    assert ")" not in gcode
+
+
+def test_default_tool_is_three_millimeters():
+    params = MachiningParams()
+
+    assert params.tool_diameter_mm == 3.0
+    assert params.tool_diameter_mm / 2 == 1.5
+
+
 def test_postprocessor_generates_safe_grbl_style_program():
     params = MachiningParams()
     moves = [
@@ -13,6 +27,8 @@ def test_postprocessor_generates_safe_grbl_style_program():
 
     gcode = generate_gcode({"moves": moves}, params, "test.stl")
 
+    assert gcode.splitlines()[:5] == ["G21", "G90", "G17", "G94", "G54"]
+    _assert_no_gcode_comments(gcode)
     assert "G21" in gcode
     assert "G90" in gcode
     assert "G17" in gcode

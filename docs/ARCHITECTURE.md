@@ -70,6 +70,7 @@ El endpoint `POST /api/analyze` es la etapa principal previa a cualquier convers
    - slicing manual por planos Z mediante intersección triángulo-plano,
    - generación básica de trayectorias con la estrategia principal `positive_part_external`,
    - postprocesado a G-code,
+   - cálculo del stock virtual usado por el algoritmo y del stock físico recomendado,
    - reporte de métricas.
 
 ```mermaid
@@ -94,6 +95,8 @@ OBJ y PLY quedan como mejora futura de soporte de mallas. STEP e IGES quedan fue
 
 No es un CAM industrial: no implementa simulación completa de remoción de material, detección perfecta de colisiones, selección automática avanzada de herramienta/material, optimización industrial ni mecanizado de 4 o 5 ejes.
 
+La validación física planteada para la tesis se limita a una CNC router objetivo con controlador DSP. El sistema genera G-code estándar para 3 ejes, pero no implementa perfiles múltiples de máquina ni promete compatibilidad universal con todos los DSP. La herramienta experimental estándar por defecto es una fresa cilíndrica/end mill de `3.000 mm`.
+
 ## Slicing Z
 
 Trimesh se usa para cargar y representar la malla STL. El slicing del backend no usa directamente `mesh.section(...)`; está implementado en `backend/app/core/slicer.py` mediante intersección manual de los triángulos de `mesh.triangles` contra planos horizontales en Z. El sistema calcula `minZ` y `maxZ` desde `mesh.bounds`, genera niveles desde `maxZ - step_down_mm` hacia niveles inferiores, proyecta los puntos de intersección a XY y reconstruye contornos 2D con Shapely (`LineString`, `polygonize`, `unary_union`).
@@ -116,6 +119,34 @@ tool_center_allowed_area = stock_inside - piece_keepout
 El objetivo es evitar que el centro de la fresa invada el contorno protegido de la pieza. Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se mantienen por compatibilidad y se reportan como `legacy_internal_pocket`, no como estrategia principal de tesis.
 
 Cuando `piece_polygon` contiene huecos internos, esos interiores no se aplanan ni se convierten en sólidos. La diferencia contra el stock deja también el material del hueco como zona removible si el radio de herramienta puede entrar. Los huecos menores al diámetro de herramienta generan advertencias como `HOLE_TOO_SMALL_FOR_TOOL` y reducen `hole_preservation_rate`; no se rellenan silenciosamente.
+
+## Stock y Preparación Física
+
+El stock de algoritmo se calcula con la fórmula real usada por `positive_part_external`, basada en el bounding box del STL ya transformado y normalizado:
+
+```text
+algorithm_stock_x = model_x + 2 * stock_margin_mm
+algorithm_stock_y = model_y + 2 * stock_margin_mm
+algorithm_stock_z = model_z
+```
+
+Este stock representa el bloque virtual usado para calcular el área externa removible. No modifica el STL y no debe confundirse con una orden de preparación física exacta.
+
+Para trazabilidad de validación en máquina, `/api/convert` también reporta un stock físico recomendado:
+
+```text
+recommended_margin_xy = max(3 * tool_diameter_mm, 10.0)
+recommended_extra_z = 3.0
+recommended_physical_stock_x = model_x + 2 * recommended_margin_xy
+recommended_physical_stock_y = model_y + 2 * recommended_margin_xy
+recommended_physical_stock_z = model_z + recommended_extra_z
+```
+
+Los campos expuestos son `model_dimensions_mm`, `algorithm_stock_mm`, `recommended_physical_stock_mm`, `stock_margin_xy_mm`, `recommended_margin_xy_mm`, `recommended_extra_z_mm`, `tool_diameter_mm`, `tool_radius_mm`, `work_origin_assumption`, `z_zero_assumption` y `stock_notes`. El G-code no incluye comentarios; esos datos se exponen en JSON y en la UI para no comprometer compatibilidad con simuladores o controladores.
+
+La herramienta estándar en esta etapa es una fresa cilíndrica/end mill de `3.000 mm` con diámetro parametrizado. No hay perfiles múltiples CNC, selección automática de herramientas ni tabs automáticos. Si la pieza debe separarse completamente del stock, se requiere fijación externa o tabs manuales.
+
+Cuando `min(model_x, model_y)` es pequeño frente al diámetro configurado, la conversión agrega advertencias como `MODEL_SMALL_RELATIVE_TO_TOOL`, `TOOL_LARGE_RELATIVE_TO_MODEL` y `FINE_DETAILS_MAY_BE_LOST`. El objetivo es avisar que los detalles finos pueden perder fidelidad por compensación del radio de herramienta; no es un bloqueo ni un error geométrico.
 
 ## Métrica de precisión 2.5D
 
@@ -151,13 +182,17 @@ Las mallas vacías, sin caras, sin vértices o con dimensiones inválidas se cla
 
 - Unidades: milímetros.
 - Modo: coordenadas absolutas.
-- Control objetivo: GRBL o controladores similares.
+- Control físico de validación: CNC router objetivo con controlador DSP.
+- Compatibilidad: G-code estándar de 3 ejes; requiere simulación, revisión del controlador y prueba en aire.
 - Ejes de backend: `X` ancho, `Y` profundidad, `Z` altura vertical de mecanizado.
 - `Z=0`: superficie superior del stock/modelo.
 - Corte: valores Z negativos.
 - `safe_z_mm`: altura positiva para traslados rápidos.
 - Origen inicial recomendado: `bottom_left`, con margen XY.
 - Después de aplicar rotación y escala, el backend traslada la malla para que `minZ=0` y evita coordenadas negativas innecesarias en `X/Y`.
+- Estrategia actual: capas con `step_down_mm`; no implementa un flujo industrial completo de desbaste/acabado.
+- El archivo `.nc` comienza con comandos ejecutables (`G21`, `G90`, `G17`, `G94`, `G54`) y no contiene comentarios.
+- En el frontend, una vez generado el G-code, las transformaciones del modelo quedan bloqueadas para evitar inconsistencias entre la geometría analizada y el archivo generado.
 
 ## Transformaciones
 

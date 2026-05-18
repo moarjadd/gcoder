@@ -10,7 +10,9 @@ El módulo backend de análisis permite cargar un STL, validar propiedades bási
 
 ## Qué no resuelve
 
-No reemplaza un CAM industrial. No garantiza mecanizar cualquier STL. No realiza optimización avanzada, simulación física completa, detección perfecta de colisiones ni selección automática ideal de herramienta/material. Tampoco implementa mecanizado de 4 o 5 ejes.
+No reemplaza un CAM industrial. No garantiza mecanizar cualquier STL. No realiza optimización avanzada, simulación física completa, detección perfecta de colisiones ni selección automática ideal de herramienta/material. Tampoco implementa mecanizado de 4 o 5 ejes, perfiles múltiples de CNC, compatibilidad universal con controladores DSP ni tabs automáticos.
+
+La herramienta experimental estándar por defecto para las pruebas de tesis es una fresa cilíndrica/end mill de `3.000 mm`. El usuario puede cambiar `tool_diameter_mm` para ensayos puntuales, pero el flujo base de validación usa radio de herramienta `1.500 mm`.
 
 ## Fabricabilidad
 
@@ -66,6 +68,8 @@ El endpoint acepta opcionalmente un campo `transform` como JSON. El backend apli
 
 El reporte de conversión incluye tiempo de procesamiento, número de capas, movimientos de herramienta, líneas de G-code, longitud estimada de trayectoria, límites XYZ, warnings y anomalías. Además calcula una métrica dimensional aproximada 2.5D por capas: `rmse_mm`, `mean_error_mm`, `max_error_mm`, `area_error_percent`, `compared_layers`, `skipped_layers` y `hole_preservation_rate`. La métrica compara contornos objetivo contra geometría nominal compensada por radio de herramienta; no representa una simulación física completa de remoción.
 
+Para apoyar la validación física controlada, el reporte también expone dimensiones del modelo y stock: `model_dimensions_mm`, `algorithm_stock_mm`, `recommended_physical_stock_mm`, `stock_margin_xy_mm`, `recommended_margin_xy_mm`, `recommended_extra_z_mm`, `tool_diameter_mm`, `tool_radius_mm`, `work_origin_assumption`, `z_zero_assumption` y `stock_notes`.
+
 ## Slicing en Z
 
 Trimesh se usa para cargar y representar la malla STL, pero el rebanado no usa directamente `mesh.section(...)`. El backend implementa el slicing en `backend/app/core/slicer.py` mediante intersección manual triángulo-plano.
@@ -99,6 +103,30 @@ Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se conserva
 
 El slicer no debe convertir silenciosamente un contorno cóncavo en una envolvente convexa ni rellenar huecos internos. Si se usa `convex_hull` como último recurso, el reporte marca `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`, además de registrar una anomalía. Las concavidades y huecos accesibles verticalmente pueden convertirse con advertencias; si el diámetro de herramienta puede perder detalle o no puede entrar en un hueco, el reporte marca `detail_loss_risk`, `HOLE_TOO_SMALL_FOR_TOOL` o `HOLE_PRESERVATION_INCOMPLETE` y recomienda reducir `tool_diameter_mm`.
 
+## Stock para validación física
+
+El stock del algoritmo corresponde al bloque virtual usado para generar las trayectorias externas. Conserva el comportamiento de la estrategia actual:
+
+```text
+algorithm_stock_x = model_x + 2 * stock_margin_mm
+algorithm_stock_y = model_y + 2 * stock_margin_mm
+algorithm_stock_z = model_z
+```
+
+Como la validación física se realizará en una CNC router objetivo con controlador DSP, el sistema reporta además una recomendación de stock físico con margen más conservador:
+
+```text
+recommended_margin_xy = max(3 * tool_diameter_mm, 10.0)
+recommended_extra_z = 3.0
+recommended_physical_stock_x = model_x + 2 * recommended_margin_xy
+recommended_physical_stock_y = model_y + 2 * recommended_margin_xy
+recommended_physical_stock_z = model_z + recommended_extra_z
+```
+
+Esta recomendación no reemplaza una planificación CAM industrial. Sirve para que el operador prepare material mayor que el STL, verifique fijación, simule el archivo y realice una prueba en aire antes del mecanizado real. La herramienta estándar considerada es una fresa cilíndrica/end mill definida por diámetro; no se implementan múltiples tipos de herramienta. Si se busca liberar totalmente la pieza, se deben usar fijación externa o tabs manuales, porque esta versión no genera tabs automáticos.
+
+La respuesta JSON y el frontend muestran la información de stock, herramienta y origen. El archivo `.nc` no la incluye como comentario para mejorar compatibilidad con simuladores y controladores.
+
 ## Parámetros de corte y G-code
 
 El usuario configura desde el frontend los parámetros principales de mecanizado:
@@ -116,7 +144,7 @@ El usuario configura desde el frontend los parámetros principales de mecanizado
 
 `tolerance_mm` existe en backend y en los tipos/defaults del frontend, pero no se expone como campo editable principal. `units` existe como enum fijo en milímetros y se materializa en el G-code mediante `G21`.
 
-El header actual generado por el postprocesador es:
+El G-code generado no contiene comentarios con `;` ni comentarios entre paréntesis. El archivo comienza directamente con el bloque modal estándar:
 
 ```gcode
 G21
@@ -155,6 +183,12 @@ El prototipo MVP permite cargar archivos STL desde el frontend, enviarlos al bac
 La conversión actual ejecuta slicing básico por capas, genera trayectorias simples, produce G-code con encabezado seguro (`G21`, `G90`, `G17`, `G94`, `G54`), eleva a `safe_z_mm`, enciende el husillo con `M3 S...` y finaliza con `M5` y `M30`. El frontend muestra el G-code, un reporte simple de capas/movimientos/advertencias/anomalías y permite descargar un archivo `.nc`.
 
 Limitaciones: solo se soporta STL; la compatibilidad 3 ejes es heurística; no hay simulación CAM industrial ni detección perfecta de colisiones; el RMSE disponible es una aproximación 2.5D basada en capas y contornos, no una medición física; el G-code debe validarse antes de ejecutarse en una máquina real.
+
+La preparación de stock queda explícita en el reporte y en la UI, no en comentarios dentro del G-code. El sistema no implementa perfiles múltiples CNC ni tabs automáticos; la validación física se plantea para una única CNC objetivo con controlador DSP y debe acompañarse de simulación y prueba en aire.
+
+Una vez generado el G-code, el frontend bloquea rotación, escala y reset de transformaciones para evitar inconsistencias entre la geometría procesada y el archivo `.nc`. Si el usuario necesita modificar el modelo, debe quitar el resultado actual o volver a cargar el STL.
+
+Los modelos muy pequeños frente a la fresa de `3.000 mm` pueden perder detalles finos: dientes pequeños, esquinas estrechas o cavidades cercanas al diámetro de herramienta pueden suavizarse o ensancharse por compensación de radio. La conversión lo reporta como advertencia (`MODEL_SMALL_RELATIVE_TO_TOOL`, `TOOL_LARGE_RELATIVE_TO_MODEL`, `FINE_DETAILS_MAY_BE_LOST`) y no como bug del sistema.
 
 La conversión usa la misma transformación aplicada en el análisis. Si el usuario modifica rotación o escala en el frontend después de analizar, debe reanalizar antes de generar G-code para mantener coherencia entre orientación visual y procesamiento backend.
 

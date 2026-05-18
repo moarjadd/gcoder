@@ -50,6 +50,13 @@ def _assert_safe_z_before_rapid_xy(gcode: str, safe_z: float):
                 assert current_z >= safe_z
 
 
+def _assert_no_gcode_comments(gcode: str):
+    assert not any(line.startswith(";") for line in gcode.splitlines())
+    assert ";" not in gcode
+    assert "(" not in gcode
+    assert ")" not in gcode
+
+
 def _linear_cut_points(gcode: str):
     current = {"x": None, "y": None, "z": None}
     for line in gcode.splitlines():
@@ -126,7 +133,25 @@ def test_convert_endpoint_defaults_to_positive_part_external_for_cube():
     assert report["machining_semantics"] == "positive_part_external"
     assert report["uses_internal_pocket"] is False
     assert report["stock_margin_mm"] == report["parameters_used"]["stock_margin_mm"]
+    assert report["stock_margin_xy_mm"] == report["parameters_used"]["stock_margin_mm"]
     assert report["tool_radius_mm"] == report["parameters_used"]["tool_diameter_mm"] / 2
+    assert report["parameters_used"]["tool_diameter_mm"] == 3.0
+    assert report["tool_diameter_mm"] == 3.0
+    assert report["tool_radius_mm"] == 1.5
+    assert report["model_dimensions_mm"] == {"x": 10.0, "y": 10.0, "z": 10.0}
+    assert report["algorithm_stock_mm"] == {"x": 22.0, "y": 22.0, "z": 10.0}
+    assert report["recommended_physical_stock_mm"]["x"] > report["model_dimensions_mm"]["x"]
+    assert report["recommended_physical_stock_mm"]["y"] > report["model_dimensions_mm"]["y"]
+    assert report["recommended_physical_stock_mm"]["z"] >= report["model_dimensions_mm"]["z"]
+    assert report["recommended_margin_xy_mm"] == 10.0
+    assert report["recommended_extra_z_mm"] == 3.0
+    assert "lower-left" in report["work_origin_assumption"]
+    assert "Z0" in report["z_zero_assumption"]
+    assert report["stock_notes"]
+    assert body["gcode"].splitlines()[:5] == ["G21", "G90", "G17", "G94", "G54"]
+    _assert_no_gcode_comments(body["gcode"])
+    assert "MODEL_SMALL_RELATIVE_TO_TOOL" in report["warning_codes"]
+    assert "TOOL_LARGE_RELATIVE_TO_MODEL" in report["warning_codes"]
     assert metrics["machining_semantics"] == "positive_part_external"
     assert metrics["uses_internal_pocket"] is False
     assert metrics["path_bounds"]["min"][0] < report["stock_margin_mm"]
@@ -154,7 +179,7 @@ def test_convert_endpoint_rejects_positive_part_external_with_insufficient_stock
                 {
                     "strategy": "positive_part_external",
                     "stock_margin_mm": 1.0,
-                    "tool_diameter_mm": 3.175,
+                    "tool_diameter_mm": 3.0,
                 }
             )
         },
@@ -286,9 +311,28 @@ def test_convert_endpoint_gcode_has_complete_cnc_header_and_footer():
 
     gcode = response.json()["gcode"]
     assert response.status_code == 200
+    assert gcode.splitlines()[:5] == ["G21", "G90", "G17", "G94", "G54"]
+    _assert_no_gcode_comments(gcode)
     for command in ("G21", "G90", "G17", "G94", "G54", "M3 S12000", "M5", "M30"):
         assert command in gcode
     assert gcode.rstrip().endswith("M30")
+
+
+def test_convert_small_model_warns_when_tool_is_large_relative_to_model():
+    response = client.post(
+        "/api/convert",
+        files={"file": ("small-cube.stl", export_stl(trimesh.creation.box(extents=(6, 6, 4))), "model/stl")},
+        data={"params": json.dumps({"step_down_mm": 2.0})},
+    )
+    body = response.json()
+    report = body["report"]
+
+    assert response.status_code == 200, body
+    assert "MODEL_SMALL_RELATIVE_TO_TOOL" in report["warning_codes"]
+    assert "TOOL_LARGE_RELATIVE_TO_MODEL" in report["warning_codes"]
+    assert any("La herramienta de 3.000 mm" in warning for warning in report["warnings"])
+    assert report["warning_details"]["model_min_xy_mm"] == 6.0
+    assert report["warning_details"]["tool_model_ratio"] == 0.5
 
 
 def test_convert_endpoint_rejects_non_stl_file():

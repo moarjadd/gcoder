@@ -40,6 +40,7 @@ export default function GcoderWorkspace() {
     modelDimensions,
     setModelDimensions,
     isModelModified,
+    isModelLocked,
     isTransformPending,
     rotateModel,
     updateModelScale,
@@ -157,7 +158,7 @@ export default function GcoderWorkspace() {
                       {backendAnalysis?.machinability?.isThreeAxisMachinable && (
                         <MachiningParametersForm
                           params={machiningParams}
-                          disabled={isConverting}
+                          disabled={isConverting || isModelLocked}
                           onChange={setMachiningParams}
                         />
                       )}
@@ -194,6 +195,7 @@ export default function GcoderWorkspace() {
                   dimensions={modelDimensions}
                   onDimensionsChange={setModelDimensions}
                   isModelModified={isModelModified}
+                  isModelLocked={isModelLocked}
                   isAnalyzed={!!analysis || !!backendAnalysis}
                 />
               </div>

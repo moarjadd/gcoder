@@ -144,9 +144,18 @@ class ConversionReport(BaseModel):
     total_holes_detected: int
     total_holes_preserved: int
     layer_geometry_warnings: list[str]
+    model_dimensions_mm: DimensionsResponse
+    algorithm_stock_mm: DimensionsResponse
+    recommended_physical_stock_mm: DimensionsResponse
+    stock_margin_xy_mm: float
+    recommended_margin_xy_mm: float
+    recommended_extra_z_mm: float
     tool_diameter_mm: float
     skipped_layers_count: int
     invalid_toolpath_layers_count: int
+    work_origin_assumption: str
+    z_zero_assumption: str
+    stock_notes: list[str]
     estimated_offset_passes_per_layer: int
     estimated_operation_complexity: int
     recommended_max_layers: int

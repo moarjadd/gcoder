@@ -38,6 +38,123 @@ def _estimate_operation_complexity(slicing: dict, params: MachiningParams) -> di
     }
 
 
+def _dimension_payload(x: float, y: float, z: float) -> dict[str, float]:
+    return {
+        "x": round(float(x), 6),
+        "y": round(float(y), 6),
+        "z": round(float(z), 6),
+    }
+
+
+def _stock_setup_metadata(mesh, params: MachiningParams) -> dict:
+    bounds = mesh.bounds
+    dimensions = bounds[1] - bounds[0]
+    model_dimensions = _dimension_payload(dimensions[0], dimensions[1], dimensions[2])
+    tool_diameter = float(params.tool_diameter_mm)
+    algorithm_margin_xy = float(params.stock_margin_mm)
+    recommended_margin_xy = max(3.0 * tool_diameter, 10.0)
+    recommended_extra_z = 3.0
+    minimum_algorithm_margin_xy = max(2.0 * tool_diameter, 5.0)
+
+    algorithm_stock = _dimension_payload(
+        model_dimensions["x"] + (2.0 * algorithm_margin_xy),
+        model_dimensions["y"] + (2.0 * algorithm_margin_xy),
+        model_dimensions["z"],
+    )
+    recommended_physical_stock = _dimension_payload(
+        model_dimensions["x"] + (2.0 * recommended_margin_xy),
+        model_dimensions["y"] + (2.0 * recommended_margin_xy),
+        model_dimensions["z"] + recommended_extra_z,
+    )
+
+    if params.origin == "center":
+        work_origin_assumption = (
+            "X0/Y0 at model and stock center; Z0 at top surface. "
+            "Stock extends symmetrically around the origin."
+        )
+    else:
+        work_origin_assumption = (
+            "X0/Y0 at lower-left of algorithm stock; model min X/Y starts at stock_margin_mm. "
+            "Z0 at top surface."
+        )
+
+    z_zero_assumption = "Z0 at top surface of stock/model; cutting moves use negative Z."
+    stock_notes = [
+        "Algorithm stock is the virtual stock used by positive_part_external toolpath generation.",
+        "Recommended physical stock is larger than the STL to allow setup, holding, and verification.",
+        "Use a flat cylindrical end mill with the configured tool diameter.",
+        "Automatic tabs are not generated; use external fixturing or manual tabs if the part must be fully released.",
+        "This is a layered step_down_mm strategy, not a full industrial roughing/finishing CAM workflow.",
+        "Verify DSP controller compatibility, simulate the program, and run an air-cut before cutting material.",
+    ]
+    if algorithm_margin_xy < minimum_algorithm_margin_xy:
+        stock_notes.append(
+            "Configured stock_margin_mm is below the recommended algorithm margin "
+            f"max(2 * tool_diameter_mm, 5.0) = {minimum_algorithm_margin_xy:.3f} mm."
+        )
+
+    return {
+        "model_dimensions_mm": model_dimensions,
+        "algorithm_stock_mm": algorithm_stock,
+        "recommended_physical_stock_mm": recommended_physical_stock,
+        "stock_margin_xy_mm": round(algorithm_margin_xy, 6),
+        "recommended_margin_xy_mm": round(recommended_margin_xy, 6),
+        "recommended_extra_z_mm": round(recommended_extra_z, 6),
+        "tool_diameter_mm": round(tool_diameter, 6),
+        "tool_radius_mm": round(tool_diameter / 2.0, 6),
+        "work_origin_assumption": work_origin_assumption,
+        "z_zero_assumption": z_zero_assumption,
+        "stock_notes": stock_notes,
+    }
+
+
+def _tool_scale_warning_payload(mesh, params: MachiningParams) -> dict:
+    dimensions = mesh.bounds[1] - mesh.bounds[0]
+    model_x = max(0.0, float(dimensions[0]))
+    model_y = max(0.0, float(dimensions[1]))
+    min_xy = min(model_x, model_y)
+    tool_diameter = float(params.tool_diameter_mm)
+    small_model_threshold = 5.0 * tool_diameter
+    tool_model_ratio = tool_diameter / min_xy if min_xy > 0 else float("inf")
+    warnings: list[str] = []
+    warning_codes: list[str] = []
+
+    if min_xy > 0 and min_xy < small_model_threshold:
+        warnings.append(
+            "MODEL_SMALL_RELATIVE_TO_TOOL: La herramienta de "
+            f"{tool_diameter:.3f} mm puede suavizar o ensanchar detalles pequeños del modelo. "
+            "Use una fresa menor o escale el modelo si necesita mayor fidelidad en detalles finos."
+        )
+        warning_codes.append("MODEL_SMALL_RELATIVE_TO_TOOL")
+
+    if tool_model_ratio > 0.15:
+        warnings.append(
+            "TOOL_LARGE_RELATIVE_TO_MODEL: El diámetro de herramienta es grande respecto al menor eje XY "
+            f"del modelo ({tool_model_ratio:.3f}). Detalles finos pueden perderse por compensación del radio."
+        )
+        warning_codes.append("TOOL_LARGE_RELATIVE_TO_MODEL")
+
+    return {
+        "warnings": warnings,
+        "warning_codes": warning_codes,
+        "warning_details": {
+            "model_min_xy_mm": round(min_xy, 6),
+            "tool_model_ratio": round(tool_model_ratio, 6) if math.isfinite(tool_model_ratio) else None,
+            "small_model_threshold_mm": round(small_model_threshold, 6),
+        },
+        "threshold_values": {
+            "small_model_min_xy_threshold_factor": 5.0,
+            "tool_model_ratio_warning_threshold": 0.15,
+        },
+        "measured_values": {
+            "model_x_mm": round(model_x, 6),
+            "model_y_mm": round(model_y, 6),
+            "model_min_xy_mm": round(min_xy, 6),
+            "tool_model_ratio": round(tool_model_ratio, 6) if math.isfinite(tool_model_ratio) else None,
+        },
+    }
+
+
 def convert_mesh(
     mesh,
     filename: str,
@@ -97,15 +214,29 @@ def convert_mesh(
     warning_codes.extend(toolpath.warning_codes)
     anomalies.extend(toolpath.anomalies)
 
+    tool_scale_warnings = _tool_scale_warning_payload(mesh, params)
+    warnings.extend(tool_scale_warnings["warnings"])
+    warning_codes.extend(tool_scale_warnings["warning_codes"])
+    if toolpath.detail_loss_risk or toolpath.convex_hull_fallback_used or toolpath.geometry_preservation_warning:
+        fine_detail_warning = (
+            "FINE_DETAILS_MAY_BE_LOST: La geometría contiene detalles que pueden perder fidelidad "
+            "por fallback geométrico o por compensación del radio de herramienta."
+        )
+        if fine_detail_warning not in warnings:
+            warnings.append(fine_detail_warning)
+        warning_codes.append("FINE_DETAILS_MAY_BE_LOST")
+
     if not toolpath.moves:
         raise HTTPException(
             status_code=422,
             detail="No se pudo generar el código G. Revisa las advertencias del análisis.",
         )
 
+    stock_setup_metadata = _stock_setup_metadata(mesh, params)
+
     try:
         postprocess_start = now_seconds()
-        gcode = generate_gcode({"moves": toolpath.moves}, params, filename)
+        gcode = generate_gcode({"moves": toolpath.moves}, params, filename, stock_setup_metadata)
         postprocess_ms = elapsed_ms(postprocess_start)
     except ValueError as exc:
         raise HTTPException(
@@ -171,22 +302,26 @@ def convert_mesh(
         "tool_diameter_mm": params.tool_diameter_mm,
         "skipped_layers_count": toolpath.skipped_layers_count,
         "invalid_toolpath_layers_count": toolpath.invalid_toolpath_layers_count,
+        **stock_setup_metadata,
         **complexity,
     }
     metrics.update(machining_metadata)
     threshold_values = {
         **analysis.get("threshold_values", {}),
         **toolpath.threshold_values,
+        **tool_scale_warnings["threshold_values"],
         "max_recommended_layers": complexity["recommended_max_layers"],
         "max_recommended_offset_passes_per_layer": 250,
     }
     measured_values = {
         **analysis.get("measured_values", {}),
         **toolpath.measured_values,
+        **tool_scale_warnings["measured_values"],
         **complexity,
     }
     warning_details = {
         **analysis.get("warning_details", {}),
+        **tool_scale_warnings["warning_details"],
         "convex_hull_fallback_used": toolpath.convex_hull_fallback_used,
         "slicing_fallback_used": toolpath.slicing_fallback_used,
         "concavity_preserved": toolpath.concavity_preserved,

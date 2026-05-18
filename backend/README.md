@@ -80,7 +80,7 @@ Las mallas vacías, sin caras, sin vértices o con dimensiones inválidas se con
 - `origin`
 - `units`
 
-Valores por defecto principales: herramienta `3.175 mm`, step down `1.0 mm`, stepover `1.5 mm`, avance XY `800 mm/min`, avance Z `200 mm/min`, spindle `12000 RPM`, Z seguro `5.0 mm`, margen de stock `6.0 mm`, tolerancia `0.1 mm`, estrategia `positive_part_external`, origen `bottom_left` y unidades `mm`.
+Valores por defecto principales: herramienta `3.000 mm`, step down `1.0 mm`, stepover `1.5 mm`, avance XY `800 mm/min`, avance Z `200 mm/min`, spindle `12000 RPM`, Z seguro `5.0 mm`, margen de stock `6.0 mm`, tolerancia `0.1 mm`, estrategia `positive_part_external`, origen `bottom_left` y unidades `mm`.
 
 El usuario configura los parámetros principales desde el frontend. `tolerance_mm` existe en el backend y en los tipos/defaults del frontend, pero no se expone como campo editable principal. `units` está restringido a milímetros y se materializa en el G-code mediante `G21`.
 
@@ -96,6 +96,32 @@ Uso real de parámetros:
 - `stock_margin_mm`: expande el stock exterior alrededor de la pieza.
 - `strategy`: selecciona la estrategia de toolpath; la principal para tesis es `positive_part_external`.
 - `origin`: controla el mapeo XY final, por ejemplo `bottom_left` o `center`.
+
+## Stock de algoritmo y stock físico recomendado
+
+El endpoint `/api/convert` reporta el stock virtual usado por la estrategia `positive_part_external` y una recomendación separada para preparar material físico en una CNC router real de 3 ejes. El STL sigue interpretándose como la pieza positiva objetivo; no se edita ni se convierte a un modelo de stock.
+
+La fórmula real del stock de algoritmo conserva el comportamiento existente:
+
+```text
+algorithm_stock_x = model_x + 2 * stock_margin_mm
+algorithm_stock_y = model_y + 2 * stock_margin_mm
+algorithm_stock_z = model_z
+```
+
+El stock físico recomendado agrega un margen operativo mayor para fijación, ajuste y validación:
+
+```text
+recommended_margin_xy = max(3 * tool_diameter_mm, 10.0)
+recommended_extra_z = 3.0
+recommended_physical_stock_x = model_x + 2 * recommended_margin_xy
+recommended_physical_stock_y = model_y + 2 * recommended_margin_xy
+recommended_physical_stock_z = model_z + recommended_extra_z
+```
+
+La respuesta incluye `model_dimensions_mm`, `algorithm_stock_mm`, `recommended_physical_stock_mm`, `stock_margin_xy_mm`, `recommended_margin_xy_mm`, `recommended_extra_z_mm`, `tool_diameter_mm`, `tool_radius_mm`, `work_origin_assumption`, `z_zero_assumption` y `stock_notes`.
+
+Para la validación de tesis se considera una única CNC objetivo con controlador DSP. No se implementan perfiles múltiples de máquina en esta etapa, no se prometen compatibilidades universales con todos los DSP y no se generan tabs automáticos. Si se desea liberar completamente la pieza del stock, deben usarse fijación externa o tabs manuales. La herramienta experimental estándar por defecto es una fresa cilíndrica/end mill de `3.000 mm`, aunque `tool_diameter_mm` puede cambiarse para pruebas controladas.
 
 ## Transformaciones del modelo
 
@@ -127,7 +153,7 @@ La transformación se aplica antes de validación, fabricabilidad, slicing, tool
 - El programa sube a `safe_z_mm` antes de traslados rápidos XY.
 - Footer: `M5`, `M30`.
 
-Header exacto generado por el postprocesador:
+El G-code descargable no incluye comentarios para mejorar compatibilidad con simuladores y controladores. La información de stock, herramienta, origen y recomendaciones de seguridad se mantiene en la respuesta JSON de `/api/convert` y en el frontend. El archivo `.nc` comienza directamente con el bloque CNC estándar:
 
 ```gcode
 G21
@@ -148,6 +174,8 @@ M30
 ```
 
 El postprocesador también inserta una subida a `safe_z_mm` antes de cualquier movimiento rápido XY si la herramienta está por debajo de la altura segura.
+
+Si el modelo es muy pequeño respecto a `tool_diameter_mm`, la conversión agrega advertencias como `MODEL_SMALL_RELATIVE_TO_TOOL`, `TOOL_LARGE_RELATIVE_TO_MODEL` o `FINE_DETAILS_MAY_BE_LOST`. No bloquean la conversión: indican que la fresa puede suavizar o ensanchar detalles pequeños por compensación del radio, una limitación física normal del mecanizado CNC.
 
 ## Slicing, huecos internos y compensación de herramienta
 

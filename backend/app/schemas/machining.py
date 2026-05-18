@@ -20,7 +20,7 @@ class Units(str, Enum):
 
 
 class MachiningParams(BaseModel):
-    tool_diameter_mm: float = Field(default=3.175, gt=0)
+    tool_diameter_mm: float = Field(default=3.0, gt=0)
     step_down_mm: float = Field(default=1.0, gt=0)
     step_over_mm: float = Field(default=1.5, gt=0)
     feed_rate_mm_min: float = Field(default=800, gt=0)

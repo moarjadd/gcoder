@@ -78,6 +78,7 @@ export function useGcoder() {
   const [transformRevision, setTransformRevision] = useState(0)
   const [analyzedTransformRevision, setAnalyzedTransformRevision] = useState(0)
   const [analyzedTransform, setAnalyzedTransform] = useState<ModelTransform | null>(null)
+  const isModelLocked = Boolean(gcode || conversionReport)
 
   // 🚨 NUEVO ESTADO DEBUG
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -90,6 +91,7 @@ export function useGcoder() {
 
   // --- LÓGICA DE ROTACIÓN INTACTA (Guarda Radianes, Y-up) ---
   const rotateModel = useCallback((axis: 'x' | 'y' | 'z', degrees: number) => {
+    if (isModelLocked) return
     const radians = degrees * (Math.PI / 180);
     setModelRotation(prev => ({
       ...prev,
@@ -101,10 +103,11 @@ export function useGcoder() {
     setGcode(null)
     setConversionReport(null)
     setTransformRevision((revision) => revision + 1)
-  }, [analysis]); 
+  }, [analysis, isModelLocked]);
   // --- FIN DE LÓGICA DE ROTACIÓN INTACTA ---
 
   const updateModelScale = useCallback((scale: number) => {
+    if (isModelLocked) return
     const nextScale = Math.min(5, Math.max(0.1, scale))
     setModelScale(nextScale)
     if (analysis) {
@@ -113,9 +116,10 @@ export function useGcoder() {
     setGcode(null)
     setConversionReport(null)
     setTransformRevision((revision) => revision + 1)
-  }, [analysis])
+  }, [analysis, isModelLocked])
 
   const resetModelTransform = useCallback(() => {
+    if (isModelLocked) return
     setModelRotation({ x: 0, y: 0, z: 0 })
     setModelScale(1)
     if (analysis) {
@@ -124,7 +128,12 @@ export function useGcoder() {
     setGcode(null)
     setConversionReport(null)
     setTransformRevision((revision) => revision + 1)
-  }, [analysis])
+  }, [analysis, isModelLocked])
+
+  const updateMachiningParams = useCallback((params: MachiningParams) => {
+    if (isModelLocked) return
+    setMachiningParams(params)
+  }, [isModelLocked])
 
   const handleFileUpload = (file: File, arrayBuffer: ArrayBuffer) => {
     if (!file.name.toLowerCase().endsWith(".stl")) {
@@ -182,7 +191,7 @@ export function useGcoder() {
   }
 
   const onAnalyze = async () => {
-    if (!stlFile || !stlData) return
+    if (!stlFile || !stlData || isModelLocked) return
     setShowIntro(false)
     setIsAnalyzing(true)
     setBackendAnalysis(null)
@@ -251,7 +260,7 @@ export function useGcoder() {
       setGcode({
         code: result.gcode,
         lines: result.linesCount,
-        estimatedTime: `${result.report.conversion_total_human ?? `${result.report.processingTimeSeconds.toFixed(2)}s`} proceso`,
+        estimatedTime: result.report.conversion_total_human ?? `${result.report.processingTimeSeconds.toFixed(2)} s`,
         report: result.report,
       })
     } catch (err: unknown) { // Mejor manejo de errores
@@ -317,7 +326,7 @@ export function useGcoder() {
     conversionError,
     conversionReport,
     machiningParams,
-    setMachiningParams,
+    setMachiningParams: updateMachiningParams,
     dragActive,
     showIntro,
     isExpanded,
@@ -328,6 +337,7 @@ export function useGcoder() {
     modelDimensions,
     setModelDimensions,
     isModelModified,
+    isModelLocked,
     isTransformPending,
     analyzedTransform,
     rotateModel,

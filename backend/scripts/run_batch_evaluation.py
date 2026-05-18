@@ -66,7 +66,7 @@ CASE_METADATA = {
 
 def default_machining_params() -> MachiningParams:
     return MachiningParams(
-        tool_diameter_mm=3.175,
+        tool_diameter_mm=3.0,
         step_down_mm=2.0,
         step_over_mm=1.5,
         feed_rate_mm_min=800,
