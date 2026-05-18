@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import ValidationError
 
+from app.core.metrics import elapsed_ms, now_seconds
 from app.core.mesh_loader import load_mesh_from_upload
 from app.routers._form import parse_model_transform
 from app.schemas.machining import MachiningParams
@@ -18,6 +19,7 @@ async def convert_stl(
     params: str | None = Form(default=None),
     transform: str | None = Form(default=None),
 ):
+    operation_start = now_seconds()
     try:
         machining_params = MachiningParams.model_validate(json.loads(params) if params else {})
     except json.JSONDecodeError as exc:
@@ -26,5 +28,14 @@ async def convert_stl(
         detail = "; ".join(error["msg"] for error in exc.errors())
         raise HTTPException(status_code=422, detail=f"Parámetros de mecanizado inválidos: {detail}") from exc
 
+    load_start = now_seconds()
     mesh = await load_mesh_from_upload(file)
-    return convert_mesh(mesh, file.filename or "modelo.stl", machining_params, parse_model_transform(transform))
+    mesh_load_ms = elapsed_ms(load_start)
+    return convert_mesh(
+        mesh,
+        file.filename or "modelo.stl",
+        machining_params,
+        parse_model_transform(transform),
+        mesh_load_ms=mesh_load_ms,
+        started_at=operation_start,
+    )

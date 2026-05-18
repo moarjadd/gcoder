@@ -44,6 +44,10 @@ export type AnalyzeResponse = {
     isValid: boolean
     warnings: string[]
     errors: string[]
+    warningCodes?: string[]
+    errorCodes?: string[]
+    thresholdValues?: Record<string, unknown>
+    measuredValues?: Record<string, unknown>
   }
   dimensions: number[]
   volumeApprox: number | null
@@ -57,10 +61,29 @@ export type AnalyzeResponse = {
     errors: string[]
     explanation: string
     details: Record<string, unknown>
+    warningCodes?: string[]
+    errorCodes?: string[]
+    thresholdValues?: Record<string, unknown>
+    measuredValues?: Record<string, unknown>
+    debug?: Record<string, unknown>
   }
   warnings: string[]
   errors: string[]
   thesisFriendlyStatus: string
+  classification_reasons: string[]
+  warning_codes: string[]
+  warning_details: Record<string, unknown>
+  machinability_debug: Record<string, unknown>
+  threshold_values: Record<string, unknown>
+  measured_values: Record<string, unknown>
   processingTimeSeconds?: number
+  analysis_total_ms: number
+  mesh_load_ms: number
+  transform_ms: number
+  validation_ms: number
+  metrics_ms: number
+  machinability_ms: number
+  classification_ms: number
+  analysis_total_human: string
   transformApplied: ModelTransform
 }

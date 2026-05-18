@@ -53,6 +53,84 @@ def star_prism_mesh(outer_radius: float = 8.0, inner_radius: float = 3.5, height
     return trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
 
 
+def annular_cylinder_mesh(outer_radius: float = 8.0, inner_radius: float = 3.5, height: float = 6.0, sections: int = 48) -> trimesh.Trimesh:
+    half_height = height / 2.0
+    vertices = []
+    for z in (-half_height, half_height):
+        vertices.extend(
+            [outer_radius * math.cos(2.0 * math.pi * index / sections), outer_radius * math.sin(2.0 * math.pi * index / sections), z]
+            for index in range(sections)
+        )
+        vertices.extend(
+            [inner_radius * math.cos(2.0 * math.pi * index / sections), inner_radius * math.sin(2.0 * math.pi * index / sections), z]
+            for index in range(sections)
+        )
+
+    bottom_outer = 0
+    bottom_inner = sections
+    top_outer = sections * 2
+    top_inner = sections * 3
+    faces = []
+    for index in range(sections):
+        next_index = (index + 1) % sections
+        ob0, ob1 = bottom_outer + index, bottom_outer + next_index
+        ib0, ib1 = bottom_inner + index, bottom_inner + next_index
+        ot0, ot1 = top_outer + index, top_outer + next_index
+        it0, it1 = top_inner + index, top_inner + next_index
+
+        faces.extend([[ob0, ob1, ot1], [ob0, ot1, ot0]])
+        faces.extend([[ib0, it0, it1], [ib0, it1, ib1]])
+        faces.extend([[ot0, ot1, it1], [ot0, it1, it0]])
+        faces.extend([[ob0, ib1, ob1], [ob0, ib0, ib1]])
+
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
+
+
+def rectangular_frame_mesh(
+    outer_width: float = 20.0,
+    outer_depth: float = 14.0,
+    inner_width: float = 8.0,
+    inner_depth: float = 4.0,
+    height: float = 6.0,
+) -> trimesh.Trimesh:
+    outer = [
+        (-outer_width / 2.0, -outer_depth / 2.0),
+        (outer_width / 2.0, -outer_depth / 2.0),
+        (outer_width / 2.0, outer_depth / 2.0),
+        (-outer_width / 2.0, outer_depth / 2.0),
+    ]
+    inner = [
+        (-inner_width / 2.0, -inner_depth / 2.0),
+        (inner_width / 2.0, -inner_depth / 2.0),
+        (inner_width / 2.0, inner_depth / 2.0),
+        (-inner_width / 2.0, inner_depth / 2.0),
+    ]
+    half_height = height / 2.0
+    vertices = []
+    for z in (-half_height, half_height):
+        vertices.extend([x, y, z] for x, y in outer)
+        vertices.extend([x, y, z] for x, y in inner)
+
+    bottom_outer = 0
+    bottom_inner = 4
+    top_outer = 8
+    top_inner = 12
+    faces = []
+    for index in range(4):
+        next_index = (index + 1) % 4
+        ob0, ob1 = bottom_outer + index, bottom_outer + next_index
+        ib0, ib1 = bottom_inner + index, bottom_inner + next_index
+        ot0, ot1 = top_outer + index, top_outer + next_index
+        it0, it1 = top_inner + index, top_inner + next_index
+
+        faces.extend([[ob0, ob1, ot1], [ob0, ot1, ot0]])
+        faces.extend([[ib0, it0, it1], [ib0, it1, ib1]])
+        faces.extend([[ot0, ot1, it1], [ot0, it1, it0]])
+        faces.extend([[ob0, ib1, ob1], [ob0, ib0, ib1]])
+
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
+
+
 def invalid_flat_mesh() -> trimesh.Trimesh:
     vertices = [
         [0.0, 0.0, 0.0],

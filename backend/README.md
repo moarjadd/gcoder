@@ -149,11 +149,13 @@ M30
 
 El postprocesador también inserta una subida a `safe_z_mm` antes de cualquier movimiento rápido XY si la herramienta está por debajo de la altura segura.
 
-## Slicing y compensación de herramienta
+## Slicing, huecos internos y compensación de herramienta
 
 Trimesh se usa para cargar y representar la malla STL. El slicing no llama directamente a `mesh.section(...)`; el backend implementa el corte mediante intersección manual triángulo-plano sobre `mesh.triangles`. Para cada nivel Z calculado con `step_down_mm`, se intersectan triángulos contra un plano horizontal, se proyectan los puntos a XY y se reconstruyen contornos 2D usando Shapely (`LineString`, `polygonize`, `unary_union`).
 
-Si una sección no cierra correctamente, el slicer intenta reconstruirla con `unary_union`. Como último recurso puede usar `convex_hull`, pero el resultado queda marcado con `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`.
+Las capas ya no se tratan como una lista plana de contornos. Cada capa mantiene una geometría Shapely con `Polygon`/`MultiPolygon`, exteriores e interiores. Esto permite conservar huecos internos verticalmente accesibles, por ejemplo anillos, marcos rectangulares o letras tipo “O”. El reporte de conversión incluye metadatos como `total_holes_detected`, `total_holes_preserved`, `hole_preservation_rate`, `layer_geometry_warnings`, `geometry_repair_used` y `lost_holes_detected`.
+
+Si una sección no cierra correctamente, el slicer intenta reconstruirla con `unary_union`. Como último recurso puede usar `convex_hull`, pero el resultado queda marcado con `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`. El fallback no se usa silenciosamente para tapar huecos: si se detecta pérdida de interiores, se reporta como advertencia fuerte.
 
 En la estrategia principal `positive_part_external`, el STL es la pieza positiva a conservar. El código no guarda necesariamente una variable llamada `removal_area`, pero implementa la lógica equivalente mediante el área permitida para el centro de la herramienta:
 
@@ -166,7 +168,25 @@ tool_center_allowed_area = stock_inside - piece_keepout
 
 El objetivo es que el centro de la fresa se mueva sobre el material externo sobrante y no invada la pieza. Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se conservan para compatibilidad, pero se reportan como `legacy_internal_pocket`.
 
+Si la pieza tiene huecos internos, el área permitida para herramienta incluye el material del hueco siempre que el radio de herramienta permita entrar. Si un hueco es menor que el diámetro efectivo de herramienta, la conversión no lo rellena silenciosamente: agrega warnings/códigos como `HOLE_TOO_SMALL_FOR_TOOL` y `HOLE_PRESERVATION_INCOMPLETE`.
+
 El backend no promete mecanizar cualquier STL ni sustituir un CAM industrial. Advierte o rechaza modelos con errores graves o posibles socavados según heurísticas simplificadas.
+
+## Precisión dimensional aproximada 2.5D
+
+El reporte de `/api/convert` calcula métricas geométricas reproducibles por capas cuando existen geometrías comparables:
+
+- `rmse_mm`
+- `mean_error_mm`
+- `max_error_mm`
+- `area_error_percent`
+- `compared_layers`
+- `skipped_layers`
+- `hole_preservation_rate`
+- `total_holes_detected`
+- `total_holes_preserved`
+
+La métrica compara contornos de la geometría objetivo de cada capa contra una geometría nominal compensada por radio de herramienta. Muestrea exteriores e interiores, por lo que los huecos cuentan en la precisión. No compara directamente el centro de herramienta contra el borde STL sin compensación y no sustituye una simulación física completa de remoción de material. `rmse_mm` solo queda en `null` si no hay capas con geometría comparable; en ese caso se agrega un warning técnico en `layer_geometry_warnings`.
 
 ## Pruebas
 
@@ -190,4 +210,4 @@ El reporte se escribe en:
 backend/reports/batch_evaluation.json
 ```
 
-Incluye metadata, resumen agregado, análisis, estado de conversión, advertencias, anomalías y parámetros CNC usados por modelo. No calcula RMSE ni sustituye simulación CAM industrial.
+Incluye metadata, resumen agregado, análisis, estado de conversión, advertencias, anomalías, parámetros CNC usados y métricas 2.5D cuando la conversión produce capas comparables. No sustituye simulación CAM industrial.

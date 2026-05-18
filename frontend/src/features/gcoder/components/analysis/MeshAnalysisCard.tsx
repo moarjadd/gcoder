@@ -20,6 +20,23 @@ function getMetricFromDetails(detailsStr: string | undefined, regex: RegExp): nu
   return m?.[1] ? parseFloat(m[1]) : 0
 }
 
+const DIAGNOSTIC_LABELS: Record<string, string> = {
+  convexity_ratio_below_threshold: "Convexidad bajo umbral",
+  concavity_detected_accessible: "Concavidad accesible desde Z",
+  not_watertight: "Malla no cerrada",
+  winding_inconsistent: "Normales inconsistentes",
+  underside_area_ratio_above_threshold: "Superficies descendentes fuera de base",
+  complex_column_ratio_above_threshold: "Columnas verticales complejas",
+  base_flatness_below_threshold: "Base plana insuficiente",
+  potential_undercuts_detected: "Posibles socavados",
+  three_axis_machinability_failed: "No cumple heurística 3 ejes",
+  warnings_present: "Advertencias activas",
+}
+
+function formatDiagnosticCode(code: string): string {
+  return DIAGNOSTIC_LABELS[code] ?? code.replace(/_/g, " ")
+}
+
 function MetricBar({
   label,
   value, // Valor esperado entre 0 y 100
@@ -133,6 +150,12 @@ export default function MeshAnalysisCard({ isAnalyzing, analysis, backendAnalysi
   }
   const thesisStatus = backendAnalysis?.thesisFriendlyStatus
   const statusLabel = thesisStatus ? statusLabels[thesisStatus] ?? thesisStatus : null
+  const classificationReasons = backendAnalysis?.classification_reasons ?? []
+  const warningDetails = backendAnalysis?.warning_details ?? {}
+  const convexityDetail =
+    typeof warningDetails.convexity_ratio === "number" && typeof warningDetails.convexity_threshold === "number"
+      ? `${(warningDetails.convexity_ratio * 100).toFixed(1)}% / ${(warningDetails.convexity_threshold * 100).toFixed(1)}%`
+      : null
 
   return (
     <div className="space-y-4 border-t border-border pt-4 transition-all duration-300">
@@ -175,6 +198,20 @@ export default function MeshAnalysisCard({ isAnalyzing, analysis, backendAnalysi
           <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
             {mainMessage}
           </p>
+          {classificationReasons.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {classificationReasons.map((reason) => (
+                <span key={reason} className="rounded-md border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 text-[11px] text-yellow-200">
+                  {formatDiagnosticCode(reason)}
+                </span>
+              ))}
+            </div>
+          )}
+          {convexityDetail && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Convexidad medida / umbral: <span className="font-mono text-foreground">{convexityDetail}</span>
+            </p>
+          )}
           {isMachinable && (
             <p className="mt-2 text-xs text-muted-foreground">
               Se recomienda validar el G-code antes de ejecutarlo en una máquina real.
@@ -250,7 +287,7 @@ export default function MeshAnalysisCard({ isAnalyzing, analysis, backendAnalysi
 
         {backendAnalysis && (
           <div className="space-y-3 text-sm">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <div className="rounded-md bg-background/40 p-3">
                 <div className="text-xs text-muted-foreground">Triángulos</div>
                 <div className="font-mono text-foreground">{backendAnalysis.triangleCount.toLocaleString()}</div>
@@ -263,6 +300,12 @@ export default function MeshAnalysisCard({ isAnalyzing, analysis, backendAnalysi
                 <div className="text-xs text-muted-foreground">Malla cerrada</div>
                 <div className="font-medium text-foreground">
                   {backendAnalysis.validation.isWatertight ? "Sí" : "No"}
+                </div>
+              </div>
+              <div className="rounded-md bg-background/40 p-3">
+                <div className="text-xs text-muted-foreground">Tiempo análisis</div>
+                <div className="font-mono text-foreground">
+                  {backendAnalysis.analysis_total_human ?? `${(backendAnalysis.processingTimeSeconds ?? 0).toFixed(2)}s`}
                 </div>
               </div>
             </div>

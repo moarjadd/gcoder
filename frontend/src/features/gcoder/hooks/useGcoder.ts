@@ -251,7 +251,7 @@ export function useGcoder() {
       setGcode({
         code: result.gcode,
         lines: result.linesCount,
-        estimatedTime: `${result.report.processingTimeSeconds.toFixed(2)}s proceso`,
+        estimatedTime: `${result.report.conversion_total_human ?? `${result.report.processingTimeSeconds.toFixed(2)}s`} proceso`,
         report: result.report,
       })
     } catch (err: unknown) { // Mejor manejo de errores

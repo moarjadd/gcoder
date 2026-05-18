@@ -1,5 +1,6 @@
 "use client"
 import { Button } from "@/components/ui/button"
+import type { ConvertResponse } from "@/features/gcoder/types"
 import * as React from "react"
 
 export default function GCodePreview({
@@ -12,15 +13,7 @@ export default function GCodePreview({
   lines: number
   estimatedTime: string
   code: string
-  report?: {
-    conversionSuccess: boolean
-    processingTimeSeconds: number
-    layersCount: number
-    toolpathMovesCount: number
-    warnings: string[]
-    anomalies: string[]
-    metrics: Record<string, unknown>
-  } | null
+  report?: ConvertResponse["report"] | null
   onDownload: () => void
 }) {
   const [copied, setCopied] = React.useState(false)
@@ -75,9 +68,15 @@ export default function GCodePreview({
           <span>Capas: <b className="text-foreground">{report.layersCount}</b></span>
           <span>Movimientos: <b className="text-foreground">{report.toolpathMovesCount}</b></span>
           <span>Líneas: <b className="text-foreground">{lines}</b></span>
-          <span>Tiempo: <b className="text-foreground">{report.processingTimeSeconds.toFixed(2)}s</b></span>
+          <span>Conversión: <b className="text-foreground">{report.conversion_total_human ?? `${report.processingTimeSeconds.toFixed(2)}s`}</b></span>
+          <span>Slicing: <b className="text-foreground">{report.slicing_human ?? `${(report.slicing_ms ?? 0).toFixed(0)}ms`}</b></span>
+          <span>Toolpath: <b className="text-foreground">{report.toolpath_human ?? `${(report.toolpath_ms ?? 0).toFixed(0)}ms`}</b></span>
+          <span>G-code: <b className="text-foreground">{report.postprocess_human ?? `${(report.postprocess_ms ?? 0).toFixed(0)}ms`}</b></span>
           <span>Warnings: <b className="text-foreground">{report.warnings.length}</b></span>
           <span>Anomalías: <b className="text-foreground">{report.anomalies.length}</b></span>
+          <span>RMSE: <b className="text-foreground">{report.rmse_mm == null ? "N/D" : `${report.rmse_mm.toFixed(4)} mm`}</b></span>
+          <span>Error área: <b className="text-foreground">{report.area_error_percent == null ? "N/D" : `${report.area_error_percent.toFixed(3)}%`}</b></span>
+          <span>Huecos: <b className="text-foreground">{report.hole_preservation_rate == null ? "N/D" : `${(report.hole_preservation_rate * 100).toFixed(1)}%`}</b></span>
         </div>
       )}
 
@@ -87,8 +86,8 @@ export default function GCodePreview({
 
       {report && (report.warnings.length > 0 || report.anomalies.length > 0) && (
         <div className="max-h-24 overflow-auto rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-xs text-yellow-200">
-          {[...report.warnings, ...report.anomalies].map((item) => (
-            <div key={item}>• {item}</div>
+          {[...report.warnings, ...report.anomalies, ...report.layer_geometry_warnings].map((item, index) => (
+            <div key={`${index}-${item}`}>• {item}</div>
           ))}
         </div>
       )}

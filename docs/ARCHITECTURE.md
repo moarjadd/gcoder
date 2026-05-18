@@ -98,7 +98,9 @@ No es un CAM industrial: no implementa simulación completa de remoción de mate
 
 Trimesh se usa para cargar y representar la malla STL. El slicing del backend no usa directamente `mesh.section(...)`; está implementado en `backend/app/core/slicer.py` mediante intersección manual de los triángulos de `mesh.triangles` contra planos horizontales en Z. El sistema calcula `minZ` y `maxZ` desde `mesh.bounds`, genera niveles desde `maxZ - step_down_mm` hacia niveles inferiores, proyecta los puntos de intersección a XY y reconstruye contornos 2D con Shapely (`LineString`, `polygonize`, `unary_union`).
 
-Si una sección no cierra correctamente, se registra una advertencia. El slicer puede usar `convex_hull` como último recurso, pero no lo hace silenciosamente: la conversión reporta `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`.
+La reconstrucción de capas conserva la jerarquía geométrica: exteriores, interiores y múltiples polígonos. Las capas internas mantienen una geometría Shapely (`Polygon`/`MultiPolygon`) además de metadatos serializables (`has_holes`, `hole_count`, `polygon_count`, `geometry_repair_used`, `lost_holes_detected`). Esto evita que un hueco interno de una letra “O”, arandela o marco rectangular se convierta en un contorno sólido.
+
+Si una sección no cierra correctamente, se registra una advertencia. El slicer puede usar `convex_hull` como último recurso, pero no lo hace silenciosamente: la conversión reporta `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`. Si el proceso implica pérdida de huecos internos, el reporte marca `lost_holes_detected` y agrega advertencias de preservación geométrica.
 
 ## Toolpath de Pieza Positiva
 
@@ -112,6 +114,27 @@ tool_center_allowed_area = stock_inside - piece_keepout
 ```
 
 El objetivo es evitar que el centro de la fresa invada el contorno protegido de la pieza. Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se mantienen por compatibilidad y se reportan como `legacy_internal_pocket`, no como estrategia principal de tesis.
+
+Cuando `piece_polygon` contiene huecos internos, esos interiores no se aplanan ni se convierten en sólidos. La diferencia contra el stock deja también el material del hueco como zona removible si el radio de herramienta puede entrar. Los huecos menores al diámetro de herramienta generan advertencias como `HOLE_TOO_SMALL_FOR_TOOL` y reducen `hole_preservation_rate`; no se rellenan silenciosamente.
+
+## Métrica de precisión 2.5D
+
+La conversión calcula una métrica dimensional aproximada basada en capas. Para cada capa comparable se muestrean puntos sobre los boundaries de la geometría objetivo, incluyendo exteriores e interiores, y se mide su distancia contra los boundaries de una geometría nominal compensada por radio de herramienta. También se compara área de capa y preservación de huecos.
+
+Campos principales del reporte:
+
+- `rmse_mm`
+- `mean_error_mm`
+- `max_error_mm`
+- `area_error_percent`
+- `compared_layers`
+- `skipped_layers`
+- `hole_preservation_rate`
+- `total_holes_detected`
+- `total_holes_preserved`
+- `layer_geometry_warnings`
+
+Esta métrica no simula remoción física completa ni colisiones; sirve como estimación geométrica reproducible para resultados de tesis. `rmse_mm` solo queda en `null` si no hay geometrías de capa comparables.
 
 ## Heurísticas de Fabricabilidad
 

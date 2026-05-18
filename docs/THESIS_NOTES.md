@@ -64,7 +64,7 @@ El endpoint acepta opcionalmente un campo `transform` como JSON. El backend apli
 
 ## Métricas
 
-El reporte de conversión incluye tiempo de procesamiento, número de capas, movimientos de herramienta, líneas de G-code, longitud estimada de trayectoria, límites XYZ, warnings y anomalías. La métrica RMSE queda preparada como `null` porque requiere una comparación geométrica posterior entre material removido y modelo objetivo; inventarla daría una precisión falsa.
+El reporte de conversión incluye tiempo de procesamiento, número de capas, movimientos de herramienta, líneas de G-code, longitud estimada de trayectoria, límites XYZ, warnings y anomalías. Además calcula una métrica dimensional aproximada 2.5D por capas: `rmse_mm`, `mean_error_mm`, `max_error_mm`, `area_error_percent`, `compared_layers`, `skipped_layers` y `hole_preservation_rate`. La métrica compara contornos objetivo contra geometría nominal compensada por radio de herramienta; no representa una simulación física completa de remoción.
 
 ## Slicing en Z
 
@@ -80,7 +80,7 @@ El flujo real es:
 
 Matemáticamente, el corte equivale a planos horizontales con normal Z, aunque el código no declare una variable explícita `plane_normal = [0, 0, 1]`.
 
-Si la reconstrucción de contornos falla, el slicer puede intentar un fallback. El uso de `convex_hull` existe solo como último recurso y queda reportado mediante `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`; no debe interpretarse como preservación estricta de geometría.
+Si la reconstrucción de contornos falla, el slicer puede intentar un fallback. El uso de `convex_hull` existe solo como último recurso y queda reportado mediante `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`; no debe interpretarse como preservación estricta de geometría. Las capas conservan `Polygon`/`MultiPolygon` con interiores para no rellenar huecos internos verticales, como arandelas, marcos o letras tipo “O”.
 
 ## Semántica de mecanizado de pieza positiva
 
@@ -97,7 +97,7 @@ tool_center_allowed_area = stock_inside - piece_keepout
 
 Las estrategias históricas `contour`, `zigzag` y `contour_parallel` se conservan como compatibilidad de pocket interno y se reportan como `legacy_internal_pocket`. No son la estrategia principal defendible para la tesis.
 
-El slicer no debe convertir silenciosamente un contorno cóncavo en una envolvente convexa. Si se usa `convex_hull` como último recurso, el reporte marca `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`, además de registrar una anomalía. Las concavidades accesibles verticalmente pueden convertirse con advertencias; si el diámetro de herramienta puede perder detalle, el reporte marca `detail_loss_risk` y recomienda reducir `tool_diameter_mm`.
+El slicer no debe convertir silenciosamente un contorno cóncavo en una envolvente convexa ni rellenar huecos internos. Si se usa `convex_hull` como último recurso, el reporte marca `convex_hull_fallback_used`, `slicing_fallback_used` y `geometry_preservation_warning`, además de registrar una anomalía. Las concavidades y huecos accesibles verticalmente pueden convertirse con advertencias; si el diámetro de herramienta puede perder detalle o no puede entrar en un hueco, el reporte marca `detail_loss_risk`, `HOLE_TOO_SMALL_FOR_TOOL` o `HOLE_PRESERVATION_INCOMPLETE` y recomienda reducir `tool_diameter_mm`.
 
 ## Parámetros de corte y G-code
 
@@ -154,7 +154,7 @@ El prototipo MVP permite cargar archivos STL desde el frontend, enviarlos al bac
 
 La conversión actual ejecuta slicing básico por capas, genera trayectorias simples, produce G-code con encabezado seguro (`G21`, `G90`, `G17`, `G94`, `G54`), eleva a `safe_z_mm`, enciende el husillo con `M3 S...` y finaliza con `M5` y `M30`. El frontend muestra el G-code, un reporte simple de capas/movimientos/advertencias/anomalías y permite descargar un archivo `.nc`.
 
-Limitaciones: solo se soporta STL; la compatibilidad 3 ejes es heurística; no hay simulación CAM industrial, detección perfecta de colisiones ni cálculo real de RMSE; el G-code debe validarse antes de ejecutarse en una máquina real.
+Limitaciones: solo se soporta STL; la compatibilidad 3 ejes es heurística; no hay simulación CAM industrial ni detección perfecta de colisiones; el RMSE disponible es una aproximación 2.5D basada en capas y contornos, no una medición física; el G-code debe validarse antes de ejecutarse en una máquina real.
 
 La conversión usa la misma transformación aplicada en el análisis. Si el usuario modifica rotación o escala en el frontend después de analizar, debe reanalizar antes de generar G-code para mantener coherencia entre orientación visual y procesamiento backend.
 
@@ -175,7 +175,7 @@ Casos incluidos:
 
 Las pruebas verifican conversión exitosa en modelos válidos, rechazo de mallas inválidas, rechazo de geometrías con posible socavado, G-code no vacío, encabezado CNC completo (`G21`, `G90`, `G17`, `G94`, `G54`), footer (`M5`, `M30`) y elevación a `safe_z_mm` antes de movimientos rápidos en XY.
 
-El reporte JSON de conversión queda preparado para uso experimental con campos explícitos: `model_name`, `status`, `layer_count`, `toolpath_move_count`, `gcode_line_count`, `processing_time_seconds`, `warnings`, `anomalies` y `parameters_used`. No se inventa RMSE ni se afirma precisión física; cualquier métrica de precisión requiere una comparación geométrica posterior entre material removido simulado y modelo objetivo.
+El reporte JSON de conversión queda preparado para uso experimental con campos explícitos: `model_name`, `status`, `layer_count`, `toolpath_move_count`, `gcode_line_count`, `processing_time_seconds`, `warnings`, `anomalies`, `parameters_used`, `rmse_mm`, `max_error_mm`, `mean_error_mm`, `area_error_percent` y `hole_preservation_rate`. La precisión reportada es geométrica 2.5D y reproducible; no afirma precisión física porque no simula la remoción real de material.
 
 El caso semicilindro/D-shape demuestra que la orientación del mismo tipo de pieza cambia el análisis de fabricabilidad: con la cara plana apoyada en `Z=0` la base es clara y el puntaje de accesibilidad es mayor; con la superficie curva orientada hacia la base aparecen superficies descendentes fuera de la zona base y el puntaje de accesibilidad disminuye. Esto justifica aplicar las transformaciones en el backend antes del análisis, porque la orientación visual seleccionada por el usuario forma parte de la posición real de mecanizado.
 
@@ -210,4 +210,4 @@ Por cada modelo se registran categoría, comportamiento esperado, estado de aná
 
 Este reporte puede usarse como evidencia inicial en la tesis porque permite comparar casos válidos, inválidos y no aptos bajo el mismo pipeline reproducible. Los modelos no aptos no hacen fallar el script; quedan registrados como rechazados o no convertidos junto con el motivo.
 
-Limitaciones: no calcula RMSE, no simula remoción física de material, no verifica colisiones reales y no reemplaza un CAM industrial. La evaluación mide comportamiento del prototipo bajo heurísticas geométricas controladas.
+Limitaciones: el RMSE calculado es aproximado por capas, no simula remoción física de material, no verifica colisiones reales y no reemplaza un CAM industrial. La evaluación mide comportamiento del prototipo bajo heurísticas geométricas controladas.

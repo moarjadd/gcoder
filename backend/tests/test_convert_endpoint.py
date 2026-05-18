@@ -23,6 +23,12 @@ from tests.stl_dataset import (
 client = TestClient(app)
 
 
+def _assert_numeric_timing(payload: dict, field_names: list[str]):
+    for field_name in field_names:
+        assert type(payload[field_name]) in (int, float)
+        assert payload[field_name] >= 0
+
+
 def _box_payload():
     return export_stl(trimesh.creation.box(extents=(10, 10, 4)))
 
@@ -85,6 +91,23 @@ def test_convert_endpoint_returns_gcode_for_simple_box():
     assert body["report"]["parameters_used"]["strategy"] == "contour"
     assert body["report"]["machining_semantics"] == "legacy_internal_pocket"
     assert body["report"]["uses_internal_pocket"] is True
+    _assert_numeric_timing(
+        body["report"],
+        [
+            "conversion_total_ms",
+            "mesh_load_ms",
+            "transform_ms",
+            "analysis_ms",
+            "slicing_ms",
+            "toolpath_ms",
+            "postprocess_ms",
+            "metrics_ms",
+        ],
+    )
+    assert isinstance(body["report"]["conversion_total_human"], str)
+    assert isinstance(body["report"]["slicing_human"], str)
+    assert isinstance(body["report"]["toolpath_human"], str)
+    assert isinstance(body["report"]["postprocess_human"], str)
 
 
 def test_convert_endpoint_defaults_to_positive_part_external_for_cube():
@@ -182,6 +205,10 @@ def test_analyze_star_prism_detects_accessible_concavity():
     assert body["machinability"]["isLikelyConvex"] is False
     assert body["machinability"]["details"]["concavityDetected"] is True
     assert body["thesisFriendlyStatus"] == "APTO_CON_ADVERTENCIAS"
+    assert "convexity_ratio_below_threshold" in body["classification_reasons"]
+    assert "concavity_detected_accessible" in body["classification_reasons"]
+    assert body["warning_details"]["concavity_detected"] is True
+    assert body["warning_details"]["convexity_threshold"] == 0.98
     assert any("cóncava" in warning or "convexa" in warning for warning in body["warnings"])
 
 
@@ -229,7 +256,25 @@ def test_convert_star_prism_with_large_tool_reports_detail_loss_risk():
     assert report["detail_loss_risk"] is True
     assert report["geometry_preservation_warning"] is True
     assert report["convex_hull_fallback_used"] is False
+    assert "detail_loss_risk" in report["warning_codes"]
+    assert report["warning_details"]["detail_loss_risk"] is True
     assert any("diámetro de herramienta" in warning for warning in report["warnings"])
+
+
+def test_convert_reports_complexity_when_step_down_is_too_small():
+    response = client.post(
+        "/api/convert",
+        files={"file": ("cube.stl", stl_payload(cube_mesh()), "model/stl")},
+        data={"params": json.dumps({"step_down_mm": 0.03, "strategy": "contour"})},
+    )
+    body = response.json()
+    report = body["report"]
+
+    assert response.status_code == 200, body
+    assert report["estimated_layer_count"] > report["recommended_max_layers"]
+    assert report["step_down_layer_warning"] is True
+    assert report["estimated_operation_complexity"] >= report["estimated_layer_count"]
+    assert "too_many_slicing_layers" in report["warning_codes"]
 
 
 def test_convert_endpoint_gcode_has_complete_cnc_header_and_footer():

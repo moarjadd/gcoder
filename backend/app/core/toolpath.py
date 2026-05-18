@@ -11,6 +11,11 @@ from app.core.units import clean_mm
 from app.schemas.machining import MachiningParams, ToolpathStrategy
 
 
+CONCAVITY_AREA_RATIO_THRESHOLD = 0.02
+DETAIL_LOSS_EDGE_RATIO = 0.75
+DETAIL_LOSS_AREA_CHANGE_RATIO = 0.01
+
+
 @dataclass
 class ToolpathResult:
     moves: list[dict]
@@ -29,6 +34,15 @@ class ToolpathResult:
     detail_loss_risk: bool
     skipped_layers_count: int
     invalid_toolpath_layers_count: int
+    precision_layers: list[dict]
+    total_holes_detected: int
+    total_holes_preserved: int
+    hole_preservation_rate: float | None
+    layer_geometry_warnings: list[str]
+    lost_holes_detected: bool
+    warning_codes: list[str]
+    threshold_values: dict
+    measured_values: dict
 
 
 def _clean_number(value: float) -> float:
@@ -126,7 +140,15 @@ def _offset_geometry(polygon: Polygon, distance: float):
     return polygon.buffer(distance, join_style=2, mitre_limit=2.0)
 
 
-def _build_layer_geometry(contours: list[list[list[float]]], params: MachiningParams):
+def _build_layer_geometry(layer: dict, params: MachiningParams):
+    if layer.get("geometry") is not None:
+        geometry = layer["geometry"]
+        if not geometry.is_valid:
+            geometry = geometry.buffer(0)
+        if not geometry.is_empty:
+            return geometry
+
+    contours = layer.get("contours", [])
     polygons = [_polygon_from_contour(contour, params.tolerance_mm) for contour in contours]
     polygons = [polygon for polygon in polygons if polygon is not None]
     if not polygons:
@@ -140,7 +162,7 @@ def _is_concave(geometry, tolerance: float) -> bool:
     hull = geometry.convex_hull
     if hull.is_empty or hull.area <= tolerance * tolerance:
         return False
-    return (hull.area - geometry.area) / hull.area > 0.02
+    return (hull.area - geometry.area) / hull.area > CONCAVITY_AREA_RATIO_THRESHOLD
 
 
 def _detail_loss_risk(geometry, tool_radius: float, tolerance: float) -> bool:
@@ -148,14 +170,14 @@ def _detail_loss_risk(geometry, tool_radius: float, tolerance: float) -> bool:
         return False
     edge_lengths: list[float] = []
     for polygon in _iter_polygons(geometry):
-        coords = list(polygon.exterior.coords)
-        for start, end in zip(coords, coords[1:]):
-            length = LineString([start, end]).length
-            if length > tolerance:
-                edge_lengths.append(length)
+        for contour in _contours_from_polygon(polygon):
+            for start, end in zip(contour, contour[1:]):
+                length = LineString([start, end]).length
+                if length > tolerance:
+                    edge_lengths.append(length)
     if edge_lengths:
         characteristic_edge = sorted(edge_lengths)[len(edge_lengths) // 2]
-        if tool_radius > characteristic_edge * 0.75:
+        if tool_radius > characteristic_edge * DETAIL_LOSS_EDGE_RATIO:
             return True
 
     restored = geometry.buffer(tool_radius, join_style=2, mitre_limit=2.0).buffer(
@@ -166,7 +188,7 @@ def _detail_loss_risk(geometry, tool_radius: float, tolerance: float) -> bool:
     if restored.is_empty:
         return True
     changed_area = restored.symmetric_difference(geometry).area
-    return changed_area / max(geometry.area, tolerance * tolerance) > 0.01
+    return changed_area / max(geometry.area, tolerance * tolerance) > DETAIL_LOSS_AREA_CHANGE_RATIO
 
 
 def _stock_polygon(model_bounds: dict, stock_margin: float) -> Polygon:
@@ -178,6 +200,61 @@ def _stock_polygon(model_bounds: dict, stock_margin: float) -> Polygon:
         float(maxs[0]) + stock_margin,
         float(maxs[1]) + stock_margin,
     )
+
+
+def _hole_polygons(geometry, tolerance: float) -> list[Polygon]:
+    holes: list[Polygon] = []
+    for polygon in _iter_polygons(geometry):
+        for interior in polygon.interiors:
+            hole = Polygon(interior)
+            if hole.is_valid and hole.area > tolerance * tolerance:
+                holes.append(hole)
+    return holes
+
+
+def _count_holes(geometry, tolerance: float) -> int:
+    return len(_hole_polygons(geometry, tolerance))
+
+
+def _count_preserved_holes(target_geometry, nominal_geometry, tolerance: float) -> int:
+    target_holes = _hole_polygons(target_geometry, tolerance)
+    nominal_holes = _hole_polygons(nominal_geometry, tolerance)
+    preserved = 0
+    for target_hole in target_holes:
+        if any(target_hole.intersection(candidate).area / max(target_hole.area, tolerance * tolerance) >= 0.5 for candidate in nominal_holes):
+            preserved += 1
+    return preserved
+
+
+def _hole_machining_warnings(
+    geometry,
+    layer_index: int,
+    params: MachiningParams,
+    tool_radius: float,
+) -> list[str]:
+    warnings: list[str] = []
+    for hole_index, hole in enumerate(_hole_polygons(geometry, params.tolerance_mm), start=1):
+        center_area = hole.buffer(-tool_radius, join_style=2, mitre_limit=2.0)
+        if center_area.is_empty or center_area.area <= params.tolerance_mm * params.tolerance_mm:
+            warnings.append(
+                "HOLE_TOO_SMALL_FOR_TOOL: "
+                f"Capa {layer_index}, hueco {hole_index} no es mecanizable con "
+                f"tool_diameter_mm={params.tool_diameter_mm:.4f}; no se rellenó silenciosamente."
+            )
+    return warnings
+
+
+def _nominal_piece_geometry(piece_geometry, tool_radius: float, tolerance: float):
+    nominal = piece_geometry.buffer(tool_radius, join_style=2, mitre_limit=2.0).buffer(
+        -tool_radius,
+        join_style=2,
+        mitre_limit=2.0,
+    )
+    if not nominal.is_valid:
+        nominal = nominal.buffer(0)
+    if nominal.is_empty or nominal.area <= tolerance * tolerance:
+        return piece_geometry
+    return nominal
 
 
 def _zigzag_segments(polygon: Polygon, params: MachiningParams):
@@ -217,17 +294,27 @@ def _add_positive_part_external_moves(
     model_bounds: dict,
     params: MachiningParams,
     tool_radius: float,
-) -> int:
+) -> dict:
     piece_keepout = piece_geometry.buffer(tool_radius, join_style=2, mitre_limit=2.0)
+    if not piece_keepout.is_valid:
+        piece_keepout = piece_keepout.buffer(0)
     stock_inside = stock.buffer(-tool_radius, join_style=2, mitre_limit=2.0)
     if stock_inside.is_empty:
-        return 0
+        return {
+            "added": 0,
+            "allowed_geometry": GeometryCollection(),
+            "nominal_geometry": _nominal_piece_geometry(piece_geometry, tool_radius, params.tolerance_mm),
+        }
 
     allowed_geometry = stock_inside.difference(piece_keepout)
     if not allowed_geometry.is_valid:
         allowed_geometry = allowed_geometry.buffer(0)
     if allowed_geometry.is_empty or allowed_geometry.area <= params.tolerance_mm * params.tolerance_mm:
-        return 0
+        return {
+            "added": 0,
+            "allowed_geometry": allowed_geometry,
+            "nominal_geometry": _nominal_piece_geometry(piece_geometry, tool_radius, params.tolerance_mm),
+        }
 
     added = 0
     current_geometry = allowed_geometry
@@ -236,7 +323,11 @@ def _add_positive_part_external_moves(
         current_geometry = current_geometry.buffer(-params.step_over_mm, join_style=2, mitre_limit=2.0)
         if not current_geometry.is_valid:
             current_geometry = current_geometry.buffer(0)
-    return added
+    return {
+        "added": added,
+        "allowed_geometry": allowed_geometry,
+        "nominal_geometry": _nominal_piece_geometry(piece_geometry, tool_radius, params.tolerance_mm),
+    }
 
 
 def _add_internal_pocket_moves(
@@ -288,6 +379,7 @@ def _add_internal_pocket_moves(
 def generate_toolpaths(slicing: dict, params: MachiningParams) -> ToolpathResult:
     moves: list[dict] = []
     warnings: list[str] = list(slicing.get("warnings", []))
+    warning_codes: list[str] = []
     anomalies: list[str] = []
     model_bounds = slicing["modelBounds"]
     tool_radius = params.tool_diameter_mm / 2.0
@@ -300,11 +392,17 @@ def generate_toolpaths(slicing: dict, params: MachiningParams) -> ToolpathResult
     concavity_detected = False
     detail_loss_risk = False
     invalid_toolpath_layers_count = 0
+    precision_layers: list[dict] = []
+    total_holes_detected = 0
+    total_holes_preserved = 0
+    layer_geometry_warnings: list[str] = list(slicing.get("layerGeometryWarnings", []))
+    lost_holes_detected = bool(slicing.get("lostHolesDetected", False))
 
     for layer in slicing["layers"]:
-        geometry = _build_layer_geometry(layer["contours"], params)
+        geometry = _build_layer_geometry(layer, params)
         if geometry is None or geometry.is_empty:
             warnings.append(f"Capa {layer['index']} sin geometría cerrada utilizable.")
+            warning_codes.append("toolpath_layer_without_closed_geometry")
             invalid_toolpath_layers_count += 1
             continue
         layer_concave = _is_concave(geometry, params.tolerance_mm)
@@ -314,18 +412,34 @@ def generate_toolpaths(slicing: dict, params: MachiningParams) -> ToolpathResult
         convex_hull_fallback_used = convex_hull_fallback_used or bool(layer.get("convexHullFallbackUsed", False))
         slicing_fallback_used = slicing_fallback_used or bool(layer.get("slicingFallbackUsed", False))
         geometry_preservation_warning = geometry_preservation_warning or bool(layer.get("geometryPreservationWarning", False))
+        lost_holes_detected = lost_holes_detected or bool(layer.get("lostHolesDetected", False))
+        if layer.get("geometryRepairUsed"):
+            layer_geometry_warnings.append("GEOMETRY_REPAIR_USED")
+        if layer.get("lostHolesDetected"):
+            layer_geometry_warnings.append("LOST_HOLES_DETECTED")
+
+        layer_hole_count = _count_holes(geometry, params.tolerance_mm)
+        total_holes_detected += layer_hole_count
 
         if layer_detail_loss_risk:
             warnings.append(
                 f"Capa {layer['index']}: el diámetro de herramienta puede impedir reproducir detalles o concavidades pequeñas; "
                 "considera reducir tool_diameter_mm."
             )
+            warning_codes.append("detail_loss_risk")
 
         layer_z = float(layer["machineZ"])
         layer_has_moves = False
+        nominal_geometry = geometry
         try:
             if is_positive_part_strategy:
-                added = _add_positive_part_external_moves(
+                for hole_warning in _hole_machining_warnings(geometry, layer["index"], params, tool_radius):
+                    warnings.append(hole_warning)
+                    warning_codes.append("HOLE_TOO_SMALL_FOR_TOOL")
+                    layer_geometry_warnings.append("HOLE_TOO_SMALL_FOR_TOOL")
+                    geometry_preservation_warning = True
+
+                result = _add_positive_part_external_moves(
                     moves,
                     geometry,
                     stock,
@@ -334,6 +448,9 @@ def generate_toolpaths(slicing: dict, params: MachiningParams) -> ToolpathResult
                     params,
                     tool_radius,
                 )
+                added = int(result["added"])
+                nominal_geometry = result["nominal_geometry"]
+                total_holes_preserved += _count_preserved_holes(geometry, nominal_geometry, params.tolerance_mm)
                 layer_has_moves = added > 0
                 if not layer_has_moves:
                     message = (
@@ -341,9 +458,11 @@ def generate_toolpaths(slicing: dict, params: MachiningParams) -> ToolpathResult
                         "revisa stock_margin_mm y tool_diameter_mm."
                     )
                     warnings.append(message)
+                    warning_codes.append("no_external_area_for_layer")
                     anomalies.append(message)
                     invalid_toolpath_layers_count += 1
             else:
+                total_holes_preserved += layer_hole_count
                 for polygon in _iter_polygons(geometry):
                     layer_has_moves = (
                         _add_internal_pocket_moves(
@@ -360,22 +479,49 @@ def generate_toolpaths(slicing: dict, params: MachiningParams) -> ToolpathResult
                     )
         except Exception as exc:
             warnings.append(f"Falló la estrategia en capa {layer['index']}: {exc}")
+            warning_codes.append("toolpath_strategy_failed")
 
         if not layer_has_moves:
             anomalies.append(f"La capa {layer['index']} no generó movimientos de corte.")
+            warning_codes.append("layer_generated_no_cut_moves")
             invalid_toolpath_layers_count += 1
+        precision_layers.append(
+            {
+                "layer_index": int(layer["index"]),
+                "target_geometry": geometry,
+                "nominal_geometry": nominal_geometry,
+                "target_hole_count": layer_hole_count,
+                "nominal_hole_count": _count_holes(nominal_geometry, params.tolerance_mm),
+                "convex_hull_fallback_used": bool(layer.get("convexHullFallbackUsed", False)),
+                "geometry_repair_used": bool(layer.get("geometryRepairUsed", False)),
+                "lost_holes_detected": bool(layer.get("lostHolesDetected", False)),
+            }
+        )
 
     if not moves:
         anomalies.append("No se generaron movimientos de herramienta.")
+        warning_codes.append("no_toolpath_moves")
     if convex_hull_fallback_used:
         message = "Se usó convex hull fallback; la geometría original puede no preservarse."
         if message not in anomalies:
             anomalies.append(message)
+        warning_codes.append("convex_hull_fallback_used")
         geometry_preservation_warning = True
     if detail_loss_risk:
         geometry_preservation_warning = True
+    if lost_holes_detected:
+        warning_codes.append("LOST_HOLES_DETECTED")
+        geometry_preservation_warning = True
 
     concavity_preserved = bool(concavity_detected and not convex_hull_fallback_used)
+    hole_preservation_rate = (
+        total_holes_preserved / total_holes_detected
+        if total_holes_detected
+        else None
+    )
+    if hole_preservation_rate is not None and hole_preservation_rate < 1.0:
+        warning_codes.append("HOLE_PRESERVATION_INCOMPLETE")
+        geometry_preservation_warning = True
 
     return ToolpathResult(
         moves=moves,
@@ -394,4 +540,32 @@ def generate_toolpaths(slicing: dict, params: MachiningParams) -> ToolpathResult
         detail_loss_risk=detail_loss_risk,
         skipped_layers_count=int(slicing.get("skippedLayersCount", 0)),
         invalid_toolpath_layers_count=invalid_toolpath_layers_count,
+        precision_layers=precision_layers,
+        total_holes_detected=int(total_holes_detected),
+        total_holes_preserved=int(total_holes_preserved),
+        hole_preservation_rate=hole_preservation_rate,
+        layer_geometry_warnings=list(dict.fromkeys(layer_geometry_warnings)),
+        lost_holes_detected=bool(lost_holes_detected),
+        warning_codes=list(dict.fromkeys(warning_codes)),
+        threshold_values={
+            "concavity_area_ratio_threshold": CONCAVITY_AREA_RATIO_THRESHOLD,
+            "detail_loss_edge_ratio": DETAIL_LOSS_EDGE_RATIO,
+            "detail_loss_area_change_ratio": DETAIL_LOSS_AREA_CHANGE_RATIO,
+        },
+        measured_values={
+            "layer_count": len(slicing["layers"]),
+            "toolpath_move_count": len(moves),
+            "concavity_detected": bool(concavity_detected),
+            "concavity_preserved": bool(concavity_preserved),
+            "convex_hull_fallback_used": bool(convex_hull_fallback_used),
+            "slicing_fallback_used": bool(slicing_fallback_used),
+            "geometry_preservation_warning": bool(geometry_preservation_warning),
+            "detail_loss_risk": bool(detail_loss_risk),
+            "skipped_layers_count": int(slicing.get("skippedLayersCount", 0)),
+            "invalid_toolpath_layers_count": invalid_toolpath_layers_count,
+            "total_holes_detected": int(total_holes_detected),
+            "total_holes_preserved": int(total_holes_preserved),
+            "hole_preservation_rate": hole_preservation_rate,
+            "lost_holes_detected": bool(lost_holes_detected),
+        },
     )

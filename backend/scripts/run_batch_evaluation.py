@@ -87,6 +87,11 @@ def _analysis_payload(analysis: dict[str, Any]) -> dict[str, Any]:
         "hasPotentialUndercuts": analysis["machinability"]["hasPotentialUndercuts"],
         "accessibilityScore": analysis["machinability"]["accessibilityScore"],
         "baseFlatnessScore": analysis["machinability"]["baseFlatnessScore"],
+        "analysis_total_ms": analysis["analysis_total_ms"],
+        "analysis_total_human": analysis["analysis_total_human"],
+        "classification_reasons": analysis["classification_reasons"],
+        "warning_codes": analysis["warning_codes"],
+        "warning_details": analysis["warning_details"],
         "warnings": analysis["warnings"],
         "errors": analysis["errors"],
     }
@@ -100,6 +105,8 @@ def _empty_conversion(status: str, reason: str | None = None, attempted: bool = 
         "toolpath_move_count": 0,
         "gcode_line_count": 0,
         "processing_time_seconds": 0.0,
+        "conversion_total_ms": 0.0,
+        "conversion_total_human": "0 min 00.00 s",
         "warnings": [],
         "anomalies": [],
     }
@@ -164,6 +171,11 @@ def evaluate_model(model_name: str, params: MachiningParams | None = None) -> di
             "toolpath_move_count": report["toolpath_move_count"],
             "gcode_line_count": report["gcode_line_count"],
             "processing_time_seconds": report["processing_time_seconds"],
+            "conversion_total_ms": report["conversion_total_ms"],
+            "conversion_total_human": report["conversion_total_human"],
+            "slicing_ms": report["slicing_ms"],
+            "toolpath_ms": report["toolpath_ms"],
+            "postprocess_ms": report["postprocess_ms"],
             "machining_semantics": report["machining_semantics"],
             "stock_margin_mm": report["stock_margin_mm"],
             "tool_diameter_mm": report["tool_diameter_mm"],
@@ -177,6 +189,10 @@ def evaluate_model(model_name: str, params: MachiningParams | None = None) -> di
             "detail_loss_risk": report["detail_loss_risk"],
             "skipped_layers_count": report["skipped_layers_count"],
             "invalid_toolpath_layers_count": report["invalid_toolpath_layers_count"],
+            "estimated_operation_complexity": report["estimated_operation_complexity"],
+            "classification_reasons": report["classification_reasons"],
+            "warning_codes": report["warning_codes"],
+            "warning_details": report["warning_details"],
             "warnings": report["warnings"],
             "anomalies": report["anomalies"],
         }
@@ -197,6 +213,25 @@ def build_batch_report() -> dict[str, Any]:
         "rejected": sum(1 for item in results if item["conversion"]["status"] == "rejected"),
         "errors": sum(1 for item in results if item["conversion"]["status"] == "error"),
     }
+    analysis_times = [
+        float(item["analysis"].get("analysis_total_ms", 0.0))
+        for item in results
+        if item.get("analysis") and item["analysis"].get("analysis_total_ms") is not None
+    ]
+    successful_conversion_times = [
+        float(item["conversion"].get("conversion_total_ms", 0.0))
+        for item in results
+        if item["conversion"].get("status") == "success"
+    ]
+    timing_summary = {
+        "average_analysis_total_ms": round(sum(analysis_times) / len(analysis_times), 3) if analysis_times else 0.0,
+        "average_conversion_total_ms": (
+            round(sum(successful_conversion_times) / len(successful_conversion_times), 3)
+            if successful_conversion_times
+            else 0.0
+        ),
+        "successful_conversion_samples": len(successful_conversion_times),
+    }
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -204,6 +239,7 @@ def build_batch_report() -> dict[str, Any]:
         "scope": "STL-only MVP",
         "total_models": len(results),
         "summary": summary,
+        "timing_summary": timing_summary,
         "results": results,
     }
 

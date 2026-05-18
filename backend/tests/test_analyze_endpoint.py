@@ -10,6 +10,12 @@ from app.main import app
 client = TestClient(app)
 
 
+def _assert_numeric_timing(payload: dict, field_names: list[str]):
+    for field_name in field_names:
+        assert type(payload[field_name]) in (int, float)
+        assert payload[field_name] >= 0
+
+
 def _box_mesh():
     return trimesh.creation.box(extents=(20, 10, 5))
 
@@ -41,6 +47,21 @@ def test_analyze_accepts_binary_stl():
     assert body["validation"]["isValid"] is True
     assert body["machinability"]["isThreeAxisMachinable"] is True
     assert body["thesisFriendlyStatus"] == "APTO_PARA_CONVERSION"
+    assert body["classification_reasons"] == []
+    assert body["warning_details"]["is_watertight"] is True
+    _assert_numeric_timing(
+        body,
+        [
+            "analysis_total_ms",
+            "mesh_load_ms",
+            "transform_ms",
+            "validation_ms",
+            "metrics_ms",
+            "machinability_ms",
+            "classification_ms",
+        ],
+    )
+    assert isinstance(body["analysis_total_human"], str)
 
 
 def test_analyze_accepts_ascii_stl():
