@@ -17,16 +17,14 @@ RECOMMENDED_MAX_LAYERS = 250
 
 def _slice_levels(min_z: float, max_z: float, step_down: float, tolerance: float) -> list[float]:
     height = max_z - min_z
-    if height <= tolerance:
+    if height <= 0:
         return []
     levels: list[float] = []
-    z = max_z - step_down
-    floor = min_z + max(tolerance * 10.0, step_down * 0.5)
-    while z >= floor:
-        levels.append(float(z))
-        z -= step_down
-    if not levels or levels[-1] > floor + tolerance:
-        levels.append(float(floor))
+    depth = step_down
+    while depth < height - tolerance:
+        levels.append(float(max_z - depth))
+        depth += step_down
+    levels.append(float(min_z))
     return levels
 
 
